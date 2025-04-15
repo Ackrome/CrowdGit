@@ -6,27 +6,20 @@ import re
 from base64 import b64decode
 from github import Github
 import json
-from try8 import AddFilesWindow
+from AddFilesWindow import AddFilesWindow
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "saved_settings.json")
 
-def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, "r") as f:
-            return json.load(f)
-    return {}
 
-def save_settings(token, student,structure = {}):
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump({"token": token, "student": student, "structure": structure}, f)
 
 class SyncApp:
     def __init__(self, root):
         self.root = root
         self.root.title("GitHub Sync Tool")
+        
 
         #Смотрим, юзер уже работал с приложением или нет
-        settings = load_settings()
+        settings = self.load_settings()
         GITHUB_TOKEN = settings.get("token", "")
         STUDENT_NAME = settings.get("student", "")
 
@@ -34,6 +27,7 @@ class SyncApp:
         self.path_var = tk.StringVar(value=os.getcwd())
         self.student_var = tk.StringVar(value=STUDENT_NAME if STUDENT_NAME else "")
         self.repo_var = tk.StringVar(value="kvdep/CoolSekeleton")
+        self.base = tk.StringVar(value="FU")
         self.log_text = tk.Text(height=10, state='disabled')
         self.progress_running = False
 
@@ -43,7 +37,19 @@ class SyncApp:
         self.grid_layout()
         
         self.add_files_btn = ttk.Button(self.root, text="Добавить файлы", command=self.open_add_files_window)
-        self.add_files_btn.grid(row=9, column=0, padx=5, pady=5)
+        self.add_files_btn.grid(row=10, column=0, padx=5, pady=5)
+    
+    @staticmethod
+    def load_settings():
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, "r") as f:
+                return json.load(f)
+        return {}
+    
+    @staticmethod
+    def save_settings(token, student,structure = {}):
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump({"token": token, "student": student, "structure": structure}, f)
     
     def open_add_files_window(self):
         """Open window for adding files to structure"""
@@ -70,9 +76,12 @@ class SyncApp:
 
         ttk.Label(self.root, text="Репозиторий:").grid(row=3, column=0, sticky="w")
         self.repo_entry = ttk.Entry(self.root, textvariable=self.repo_var, width=40)
+        
+        ttk.Label(self.root, text="Базовая папка:").grid(row=4, column=0, sticky="w")
+        self.base_entry = ttk.Entry(self.root, textvariable=self.base, width=40)
 
         self.create_btn = ttk.Button(self.root, text="Создать структуру", command=self.run_create_structure)
-        ttk.Label(self.root, text="Скачает сюда всю структуру папок с Git. Подпапку не создаст.").grid(row=4, column=1, sticky="w")
+        ttk.Label(self.root, text="Скачает сюда всю структуру папок с Git. Подпапку не создаст.").grid(row=5, column=1, sticky="w")
 
         self.sync_btn = ttk.Button(self.root, text="Синхронизировать", command=self.run_sync)
 
@@ -95,19 +104,20 @@ class SyncApp:
         self.browse_btn.grid(row=1, column=2, padx=5, pady=2)
         self.student_entry.grid(row=2, column=1, columnspan=2, padx=5, pady=2, sticky="we")
         self.repo_entry.grid(row=3, column=1, columnspan=2, padx=5, pady=2, sticky="we")
-        self.create_btn.grid(row=4, column=0, padx=5, pady=5)
-        self.sync_btn.grid(row=5, column=0, padx=5, pady=5)
-        self.log_text.grid(row=6, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
-        self.log_scroll.grid(row=6, column=3, sticky="ns")
-        self.progress.grid(row=7, column=0, columnspan=3, sticky="we", padx=5, pady=5)
-        self.example_label.grid(row=8, column=0, columnspan=3, padx=5, pady=5, sticky="w")
+        self.base_entry.grid(row=4, column=1, columnspan=2, padx=5, pady=2, sticky="we")
+        self.create_btn.grid(row=5, column=0, padx=5, pady=5)
+        self.sync_btn.grid(row=6, column=0, padx=5, pady=5)
+        self.log_text.grid(row=7, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
+        self.log_scroll.grid(row=7, column=3, sticky="ns")
+        self.progress.grid(row=8, column=0, columnspan=3, sticky="we", padx=5, pady=5)
+        self.example_label.grid(row=9, column=0, columnspan=3, padx=5, pady=5, sticky="w")
         self.save_btn.grid(row=3, column=3, padx=5, pady=2)
 
     def save_profile(self):
         token = self.token_var.get()
         student = self.student_var.get()
         if token.strip() and student.strip():
-            save_settings(token, student)
+            self.save_settings(token, student)
             self.log_message("[OK] Профиль сохранён")
         else:
             self.log_message("[ОШИБКА] Поля не должны быть пустыми")

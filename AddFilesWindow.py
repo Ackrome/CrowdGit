@@ -4,8 +4,8 @@ import os
 from github import Github
 from collections import defaultdict
 from tkinter import simpledialog
-from setup import save_settings, load_settings
-
+import shutil
+import traceback
 
 class AddFilesWindow(tk.Toplevel):
     def __init__(self, parent, base_path, token_var, repo_var):
@@ -14,6 +14,7 @@ class AddFilesWindow(tk.Toplevel):
         self.base_path = base_path
         self.token_var = token_var
         self.repo_var = repo_var
+        self.base = self.parent.base.get()
         
         self.files = []
         self.title("Добавить файлы в структуру")
@@ -28,6 +29,7 @@ class AddFilesWindow(tk.Toplevel):
         
         # File management
         self.add_btn = ttk.Button(self, text="Добавить файл", command=self.add_file)
+        self.force_reload = ttk.Button(self, text="Перезагрузить структуру", command=self.force_reload_structure)
         self.file_list = tk.Listbox(self)
         self.file_list.bind("<Button-3>", self.show_context_menu)
         
@@ -40,12 +42,15 @@ class AddFilesWindow(tk.Toplevel):
         ttk.Label(self, text="Курс").grid(row=3, column=1, sticky="w")
         self.course_dd = ttk.Combobox(self, textvariable=self.course_var)
         self.course_dd.grid(row=3, column=0,ipadx=300)
+        
         ttk.Label(self, text="Семестр").grid(row=4, column=1, sticky="w")
         self.semester_dd = ttk.Combobox(self, textvariable=self.semester_var)
         self.semester_dd.grid(row=4, column=0,ipadx=300)
+        
         ttk.Label(self, text="Предмет").grid(row=5, column=1, sticky="w")
         self.subject_dd = ttk.Combobox(self, textvariable=self.subject_var)
         self.subject_dd.grid(row=5, column=0,ipadx=300)
+        
         ttk.Label(self, text="Тип").grid(row=6, column=1, sticky="w")
         self.type_dd = ttk.Combobox(self, textvariable=self.type_var, values=["sem", "hw", "lec", "data", "other"])
         self.type_dd.grid(row=6, column=0,ipadx=300)
@@ -55,6 +60,8 @@ class AddFilesWindow(tk.Toplevel):
         
         # Layout
         self.add_btn.grid(row=0, column=0, pady=5, sticky="w")
+        self.force_reload.grid(row=0, column=1, pady=5, sticky="e")
+        ttk.Label(self, text="Не нашли нужную папку? Попробуйте перезагрузить структуру ->").grid(row=0, column=0, sticky="e")
         self.paths_text.grid(row=1, column=0, sticky="nsew", padx=5)
         self.scroll.grid(row=1, column=1, sticky="ns")
         self.file_list.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
@@ -62,38 +69,43 @@ class AddFilesWindow(tk.Toplevel):
         
         
         try:
-            self.folder_structure = load_settings().get("structure")
+            self.folder_structure = self.parent.load_settings().get("structure")
             if not len(list(self.folder_structure.keys())):
                 self.create_folder_structure()
-                save_settings(self.token_var.get(), self.parent.student_var.get(), self.folder_structure)
+                self.parent.save_settings(self.token_var.get(), self.parent.student_var.get(), self.folder_structure)
         except:
             self.create_folder_structure()
-            save_settings(self.token_var.get(), self.parent.student_var.get(), self.folder_structure)
+            self.parent.save_settings(self.token_var.get(), self.parent.student_var.get(), self.folder_structure)
     
-        print("AddFilesWindow: folder_structure created")
+        # print("AddFilesWindow: folder_structure created")
         self.scan_local_structure()
-        print("AddFilesWindow: local structure scanned")
-        print(f"AddFilesWindow: folder_structure = {self.folder_structure}")
-        print(f"AddFilesWindow: courses = {self.courses}")
-        print(f"AddFilesWindow: semesters_dict = {self.semesters_dict}")
-        print(f"AddFilesWindow: subjects_dict = {self.subjects_dict}")
+        # print("AddFilesWindow: local structure scanned")
+        # print(f"AddFilesWindow: folder_structure = {self.folder_structure}")
+        # print(f"AddFilesWindow: courses = {self.courses}")
+        # print(f"AddFilesWindow: semesters_dict = {self.semesters_dict}")
+        # print(f"AddFilesWindow: subjects_dict = {self.subjects_dict}")
 
         # Добавляем привязки для автоматического обновления
         self.course_var.trace_add('write', self.update_semesters)
         self.semester_var.trace_add('write', self.update_subjects)
-        print("AddFilesWindow: Initialization complete")
+        # print("AddFilesWindow: Initialization complete")
+    
+    def force_reload_structure(self):
+        self.create_folder_structure()
+        self.parent.save_settings(self.token_var.get(), self.parent.student_var.get(), self.folder_structure)
+        self.parent.log_message("[OK] Структура папок создана")
     
     def create_folder_structure(self):
         """Create local folder structure from GitHub repo"""
         self.parent.toggle_progress(True)
-        print("create_folder_structure: Starting")
+        # print("create_folder_structure: Starting")
         if not self.token_var.get() or not self.repo_var.get():
             self.parent.log_message("[ОШИБКА] Token or repository is empty.")
-            print("[ОШИБКА] create_folder_structure: Token or repository is empty.")
+            # print("[ОШИБКА] create_folder_structure: Token or repository is empty.")
             return
 
         try:
-            print("create_folder_structure: Trying to connect to GitHub")
+            # print("create_folder_structure: Trying to connect to GitHub")
             g = Github(self.token_var.get())
             repo = g.get_repo(self.repo_var.get())
 
@@ -108,11 +120,11 @@ class AddFilesWindow(tk.Toplevel):
 
             self.folder_structure = get_dirs()
             self.parent.log_message("[OK] Структура папок создана")
-            print("create_folder_structure: Folder structure created successfully")
+            # print("create_folder_structure: Folder structure created successfully")
             self.parent.toggle_progress(False)
         except Exception as e:
             self.parent.log_message(f"[ОШИБКА] {type(e).__name__}: {str(e)}")  # Log exception type and message
-            print(f"create_folder_structure: Error: {type(e).__name__}: {str(e)}")
+            # print(f"create_folder_structure: Error: {type(e).__name__}: {str(e)}")
 
     
         
@@ -173,38 +185,38 @@ class AddFilesWindow(tk.Toplevel):
 
     def update_semesters(self, *args):
         """Обновляем список семестров при выборе курса"""
-        print("update_semesters: Starting")
+        # print("update_semesters: Starting")
         course = self.course_var.get()
         if not self.semesters_dict:
-            print("update_semesters: semesters_dict is empty")
+            # print("update_semesters: semesters_dict is empty")
             return
         self.semester_dd['values'] = sorted(self.semesters_dict.get(course, []))
         self.semester_var.set('')
         self.update_subjects() # Call update_subjects here
-        print("update_semesters: Finished")
+        # print("update_semesters: Finished")
 
     def update_subjects(self, *args):
         """Обновляем список предметов при выборе семестра"""
-        print("update_subjects: Starting")
+        # print("update_subjects: Starting")
         course = self.course_var.get()
         semester = self.semester_var.get()
         if not self.subjects_dict:
-            print("update_subjects: subjects_dict is empty")
+            # print("update_subjects: subjects_dict is empty")
             return
         self.subject_dd['values'] = sorted(self.subjects_dict.get(course, {}).get(semester, []))
         self.subject_var.set('')
-        print("update_subjects: Finished")
+        # print("update_subjects: Finished")
 
 
     def scan_local_structure(self):
         """
-        Gets the structure from folders in the format course_X/semester_Y/subject_abbrev_Name
+        Gets the structure from folders in the format base/course_X/semester_Y/subject_abbrev_Name
         using the self.folder_structure dictionary.
         """
-        print("scan_local_structure: Starting")
+        # print("scan_local_structure: Starting")
         if not os.path.isdir(self.base_path):
             self.parent.log_message(f"[ОШИБКА] Invalid base path: {self.base_path}")
-            print(f"scan_local_structure: Invalid base path: {self.base_path}")
+            # print(f"scan_local_structure: Invalid base path: {self.base_path}")
             return
 
         self.courses = set()
@@ -212,23 +224,36 @@ class AddFilesWindow(tk.Toplevel):
         self.subjects_dict = defaultdict(lambda: defaultdict(set))
 
         def traverse_structure(structure, current_path=""):
+            
+            print(f'structure: {structure}\n current_path: {current_path}\n\n\n')
+            
             for key, value in structure.items():
+                #print(f'\nkey: {key}, value: {value}, current_path: {current_path}\n')
                 if current_path == "":
-                    if key.startswith("course_"):
+                        traverse_structure(value, os.path.join(current_path, key))
+                elif key.startswith("course_"):
                         self.courses.add(key)
-                        traverse_structure(value, key)
-                elif current_path.startswith("course_") and key.startswith("semester_"):
-                    self.semesters_dict[current_path].add(key)
+                        traverse_structure(value, os.path.join(current_path, key))
+                    
+                elif key.startswith("semester_"):
+                    base, course = current_path.split(os.sep)
+                    self.semesters_dict[course].add(key)
                     traverse_structure(value, os.path.join(current_path, key))
                 elif "_" in key:
                     subject_name = key.split("_", 1)[1]
-                    course, semester = current_path.split(os.sep)
+                    base, course, semester = current_path.split(os.sep)
                     self.subjects_dict[course][semester].add(subject_name)
+                #else:
+                    #traverse_structure(value, os.path.join(current_path, key))
+                    
 
         traverse_structure(self.folder_structure)
 
         self.course_dd['values'] = sorted(self.courses)
-        print("scan_local_structure: Finished")
+        # print("scan_local_structure: Finished")
+        
+        
+        # print(self.course_dd)
 
 
     def update_paths_text(self):
@@ -245,7 +270,7 @@ class AddFilesWindow(tk.Toplevel):
             orig_path = f["path"]
             if f["num"] and course and semester and subject_name:
                 # Get subject abbreviation from folder structure
-                subject_folder = next((d for d in os.listdir(os.path.join(self.base_path, course, semester)) 
+                subject_folder = next((d for d in os.listdir(os.path.join(self.base_path, self.base, course, semester)) 
                                      if d.endswith(f"_{subject_name}")), "")
                 if subject_folder:
                     abbrev = subject_folder.split("_")[0]
@@ -272,28 +297,30 @@ class AddFilesWindow(tk.Toplevel):
                 
                 src = f["path"]
                 try:
-                    subject_folder = next(d for d in os.listdir(os.path.join(self.base_path, self.course_var.get(), self.semester_var.get())) 
+                    subject_folder = next(d for d in os.listdir(os.path.join(self.base_path, self.base, self.course_var.get(), self.semester_var.get())) 
                                          if d.endswith(f"_{self.subject_var.get()}"))
                 except StopIteration:
                     raise ValueError(f"No folder found for subject: {self.subject_var.get()}")
                 target_dir = os.path.join(
-                    self.base_path,
-                    self.course_var.get(),
-                    self.semester_var.get(),
-                    subject_folder,
-                    self.type_var.get()
+                    self.base_path,             # absolute path to directory
+                    self.base,                  # uni name
+                    self.course_var.get(),      # course name
+                    self.semester_var.get(),    # semester name
+                    subject_folder,             # subject name from dropdown
+                    self.type_var.get()         # hw and others
                 )
                 os.makedirs(target_dir, exist_ok=True)
                 
                 # Generate new filename
                 base = os.path.basename(src)
-                abbrev = os.path.basename(target_dir).split("_")[0]
+                abbrev = subject_folder.split("_")[0]
                 new_name = f"{abbrev}_{self.type_var.get()}_{f['num']}_{self.parent.student_var.get()}.{base.split('.')[-1]}"
                 
                 # Copy file
-                os.replace(src, os.path.join(target_dir, new_name))
+                shutil.copy(src, os.path.join(target_dir, new_name))
                 self.parent.log_message(f"[OK] {new_name} добавлен в структуру")
             except Exception as e:
+                print(traceback.format_exc())
                 success = False
                 self.parent.log_message(f"[ОШИБКА] {str(e)}")
         
