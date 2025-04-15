@@ -6,6 +6,7 @@ import re
 from base64 import b64decode
 from github import Github
 import json
+from try8 import AddFilesWindow
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "saved_settings.json")
 
@@ -40,6 +41,16 @@ class SyncApp:
 
         self.create_widgets()
         self.grid_layout()
+        
+        self.add_files_btn = ttk.Button(self.root, text="Добавить файлы", command=self.open_add_files_window)
+        self.add_files_btn.grid(row=9, column=0, padx=5, pady=5)
+    
+    def open_add_files_window(self):
+        """Open window for adding files to structure"""
+        if hasattr(self, 'add_window') and self.add_window.winfo_exists():
+            self.add_window.lift()
+        else:
+            self.add_window = AddFilesWindow(self, self.path_var.get(), self.token_var, self.repo_var)    
 
     def create_widgets(self):
         ttk.Label(self.root, text="GitHub Token:").grid(row=0, column=0, sticky="w")
@@ -134,58 +145,49 @@ class SyncApp:
             self.log_message(f"[ОШИБКА] {str(e)}")
 
     def sync_files(self):
+        """Synchronize files with GitHub repo"""
         try:
-            #pattern = re.compile(r"^(?P<subj>[a-z_]+)_(?P<type>sem|hw|lec)_(?P<num>\\d{1,3})_(?P<name>.+)\\.(?P<ext>\\w+)$")
-            pattern  = re.compile(r"^(?P<subj>[a-z_]+)_(?P<type>sem|hw|lec)_(?P<num>\d{1,3})_(?P<name>.+)\.(?P<ext>\w+)$")
-
+            # Regex pattern: subj_abbrev_type_num_name.ext (e.g. nm_hw_4_Kidysyuk.ipynb)
+            pattern = re.compile(r"^([a-z]+)_(sem|hw|lec)_(\d+)_(.+)\.(\w+)$")
+            
             g = Github(self.token_var.get())
             repo = g.get_repo(self.repo_var.get())
             student = self.student_var.get()
-            base_path = self.path_var.get()
 
-            for root, _, files in os.walk(base_path):
-                if any(part in root for part in ["seminar", "lecture", "hw", "data", "other"]):
-                    rel_root = os.path.relpath(root, base_path)
-                    parts = rel_root.split(os.sep)
+            for root, _, files in os.walk(self.path_var.get()):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, self.path_var.get())
+                    github_path = rel_path.replace("\\", "/")
 
-                    subj_abbr = parts[3].split("_")[0] if len(parts) >= 4 and "_" in parts[3] else ""
-                    print(subj_abbr)
-                    folder_type = parts[4] if len(parts) >= 5 else ""
-                    folder_type = self.folder_dict[folder_type]
-                    
-                    for file in files:
-                        print(file,student,subj_abbr,folder_type)
-                        valid = (
-                            folder_type == "data"
-                            or (pattern.match(file) and student in file and pattern.match(file).group("subj") == subj_abbr)
-                        )
-                        if not valid:
-                            self.log_message(f"Skipped (bad name): {file}")
+                    # Check filename validity
+                    if "data" in rel_path.split(os.sep):
+                        if student not in file:
+                            continue
+                    else:
+                        match = pattern.match(file)
+                        if not match or student not in file:
+                            self.log_message(f"{file} не подходит для синхронизации!")
                             continue
 
-                        full_path = os.path.join(root, file)
-                        rel_path = os.path.relpath(full_path, base_path)
-                        repo_path = os.path.join("FU", *self.convert_path(rel_path)).replace("\\", "/")
-
-                        with open(full_path, "rb") as f:
-                            content = f.read()
-
-                        try:
-                            contents = repo.get_contents(repo_path)
-                            decoded = b""
-                            if contents.encoding == "base64":
-                                decoded = b64decode(contents.content)
-                            if decoded != content:
-                                repo.update_file(contents.path, f"Update {file}", content, contents.sha)
-                                self.log_message(f"Updated: {repo_path}")
-                            else:
-                                self.log_message(f"Unchanged: {repo_path}")
-                        except Exception:
-                            repo.create_file(repo_path, f"Add {file}", content)
-                            self.log_message(f"Created: {repo_path}")
+                    # Upload/update file
+                    with open(full_path, "rb") as f:
+                        content = f.read()
+                    
+                    try:
+                        contents = repo.get_contents(github_path)
+                        if contents.decoded_content != content:
+                            repo.update_file(contents.path, f"Update {file}", content, contents.sha)
+                            self.log_message(f"{file} успешно обновлен")
+                        else:
+                            self.log_message(f"{file} без изменений")
+                    except:
+                        repo.create_file(github_path, f"Add {file}", content)
+                        self.log_message(f"{file} успешно загружен")
+                        
         except Exception as e:
             self.log_message(f"[ОШИБКА] {str(e)}")
-
+            
     def convert_path(self, rel_path):
         parts = rel_path.split(os.sep)
         if "data" in parts:
