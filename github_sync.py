@@ -16,9 +16,9 @@ def load_settings():
             return json.load(f)
     return {}
 
-def save_settings(token, student):
+def save_settings(token, student,structure = {}):
     with open(SETTINGS_FILE, "w") as f:
-        json.dump({"token": token, "student": student}, f)
+        json.dump({"token": token, "student": student, "structure": structure}, f)
 
 class SyncApp:
     def __init__(self, root):
@@ -47,10 +47,15 @@ class SyncApp:
     
     def open_add_files_window(self):
         """Open window for adding files to structure"""
+        print("open_add_files_window: Starting")
         if hasattr(self, 'add_window') and self.add_window.winfo_exists():
             self.add_window.lift()
+            print("open_add_files_window: Window already exists, lifting it")
         else:
-            self.add_window = AddFilesWindow(self, self.path_var.get(), self.token_var, self.repo_var)    
+            self.add_window = AddFilesWindow(self, self.path_var.get(), self.token_var, self.repo_var)
+            print("open_add_files_window: New window created")
+
+   
 
     def create_widgets(self):
         ttk.Label(self.root, text="GitHub Token:").grid(row=0, column=0, sticky="w")
