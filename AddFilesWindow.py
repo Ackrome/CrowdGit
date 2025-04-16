@@ -181,6 +181,9 @@ class AddFilesWindow(tk.Toplevel):
         self.semesters_dict = defaultdict(set)
         self.subjects_dict = defaultdict(lambda: defaultdict(set))
 
+        
+        
+            
         def traverse_structure(structure, current_path_parts=None):
             if current_path_parts is None:
                 current_path_parts = []
@@ -202,8 +205,14 @@ class AddFilesWindow(tk.Toplevel):
                     self.subjects_dict[course][semester].add(subject_name)
                 else:
                     traverse_structure(value, new_path_parts)
-
-        traverse_structure(self.parent.folder_structure)
+        try:
+            traverse_structure(self.parent.folder_structure)
+        except AttributeError:
+                messagebox.showwarning("Подождите", "Структура файлов создается. Подождите...")
+                self.parent.create_folder_structure()
+                self.parent.save_settings(self.parent.token_var.get(), self.parent.student_var.get(), self.parent.folder_structure)
+                traverse_structure(self.parent.folder_structure)
+            
 
         self.course_dd['values'] = sorted(self.courses)
 
@@ -276,6 +285,8 @@ class AddFilesWindow(tk.Toplevel):
                 # Copy file
                 shutil.copy(src, os.path.join(target_dir, new_name))
                 self.parent.log_message(f"[OK] {new_name} добавлен в структуру")
+            
+            
             except Exception as e:
                 print(traceback.format_exc())
                 success = False
