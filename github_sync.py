@@ -29,8 +29,8 @@ class SyncApp:
         self.log_text = tk.Text(height=10, state='disabled')
         self.progress_running = False
         self.all_logs = tk.BooleanVar(value=False)
-        self.uploaded = tk.IntVar(value=0)  # Initialize uploaded counter to 0      
-          
+        self.uploaded = tk.IntVar(value=0)  # Initialize uploaded counter to 0
+
         self.folder_dict = {"seminar": 'sem', "lecture": 'lec', "hw": 'hw', "data": 'data', "other": 'other'}
 
         self.create_widgets()
@@ -38,9 +38,14 @@ class SyncApp:
 
         self.add_files_btn = ttk.Button(self.root, text="Добавить файлы", command=self.open_add_files_window)
         self.add_files_btn.grid(row=10, column=0, padx=5, pady=5)
+
+        self.remove_buttons()
+        self.token_var.trace_add('write', self.check_token)  # Add a trace to the token variable
+        self.token_var.set(GITHUB_TOKEN+' ')
+        self.token_var.set(GITHUB_TOKEN)
         
         self.folders_synchronized = tk.BooleanVar(value=False)
-        
+
         try:
             self.folder_structure = self.load_settings().get("structure")
             if not len(list(self.folder_structure.keys())):
@@ -49,10 +54,24 @@ class SyncApp:
         except:
             self.create_folder_structure()
             self.save_settings(self.token_var.get(), self.student_var.get(), self.folder_structure)
+            
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_rowconfigure(7, weight=1)
 
+        
 
-
-    
+    def check_token(self, *args):
+        """Check if the token is valid and show/hide the button accordingly."""
+        if len(self.token_var.get()) == 93:
+            for i in self.butts:
+                i.grid()  # Show the button
+            self.root.update()  # Force the window to update its layout
+            self.root.geometry("")  # Resize the window to fit its contents
+        else:
+            for i in self.butts:
+                i.grid_remove()  # Hide the button
+            self.root.update()  # Force the window to update its layout
+            self.root.geometry("")  # Resize the window to fit its contents
 
     def create_folder_structure(self):
         """Create local folder structure from GitHub repo"""
@@ -70,12 +89,12 @@ class SyncApp:
                 dct = {}
                 for item in contents:
                     if item.type == "dir":
-                        
+
                         dct[item.name] = get_dirs(item.path, local_path)
-                        
+
                         dir_path = os.path.join(local_path, item.path)
                         os.makedirs(dir_path, exist_ok=True)
-                        
+
                 self.log_message(f"[OK] {repo_path} : folders uploaded {len(dct)}")
                 return dct
 
@@ -84,9 +103,9 @@ class SyncApp:
             self.log_message("[OK] Структура папок создана")
 
         except Exception as e:
-            self.__setattr__log_message(f"[ОШИБКА] {type(e).__name__}: {str(e)}")
-            
-        self.toggle_progress(False)   
+            self.log_message(f"[ОШИБКА] {type(e).__name__}: {str(e)}")
+
+        self.toggle_progress(False)
 
     @staticmethod
     def load_settings():
@@ -110,6 +129,25 @@ class SyncApp:
             self.add_window = AddFilesWindow(self, self.path_var.get(), self.token_var, self.repo_var)
             print("open_add_files_window: New window created")
 
+    def remove_buttons(self):
+        self.butts = [
+            self.add_files_btn,
+            self.create_btn,
+            self.sync_btn,
+            self.progress,
+            self.all_logs_entry,
+            self.uploaded_info,
+            self.uploaded_show,
+            self.log_scroll,
+            self.log_text,
+            self.example_label,
+            self.save_btn,
+            self.create_info
+
+        ]
+        for i in self.butts:
+            i.grid_remove()
+
     def create_widgets(self):
         ttk.Label(self.root, text="GitHub Token:").grid(row=0, column=0, sticky="w")
         self.token_entry = ttk.Entry(self.root, textvariable=self.token_var, width=40, show="*")
@@ -128,13 +166,14 @@ class SyncApp:
         self.base_entry = ttk.Entry(self.root, textvariable=self.base, width=40)
 
         self.create_btn = ttk.Button(self.root, text="Создать структуру", command=self.run_create_structure)
-        ttk.Label(self.root, text="Скачает сюда всю структуру папок с Git. Подпапку не создаст. Не нашли нужную папку?").grid(row=5, column=1, sticky="w")
-                
+        self.create_info = ttk.Label(self.root,
+                                     text="Скачает сюда всю структуру папок с Git. Подпапку не создаст. Не нашли нужную папку?")
+
         self.sync_btn = ttk.Button(self.root, text="Синхронизировать", command=self.run_sync)
 
         self.all_logs_entry = ttk.Checkbutton(self.root, text="Все логи", variable=self.all_logs)
 
-        self.uploaded_inf = ttk.Label(self.root, text="Загружено:")  # Display "Загружено:"
+        self.uploaded_info = ttk.Label(self.root, text="Загружено:")  # Display "Загружено:"
         self.uploaded_show = ttk.Label(self.root, textvariable=self.uploaded)  # Display uploaded count
 
         self.log_scroll = ttk.Scrollbar(self.root, orient="vertical", command=self.log_text.yview)
@@ -156,14 +195,17 @@ class SyncApp:
         self.student_entry.grid(row=2, column=1, columnspan=2, padx=5, pady=2, sticky="we")
         self.repo_entry.grid(row=3, column=1, columnspan=2, padx=5, pady=2, sticky="we")
         self.base_entry.grid(row=4, column=1, columnspan=2, padx=5, pady=2, sticky="we")
+
+        self.create_info.grid(row=5, column=1, columnspan=2, padx=5, pady=2, sticky="we")
         self.create_btn.grid(row=5, column=0, padx=5, pady=5)
+
         self.sync_btn.grid(row=6, column=0, padx=5, pady=5)
         self.log_text.grid(row=7, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
         self.log_scroll.grid(row=7, column=3, sticky="ns")
-        
-        self.uploaded_inf.grid(row=6, column=2)
-        self.uploaded_show.grid(row=6, column=3)        
-        
+
+        self.uploaded_info.grid(row=6, column=2)
+        self.uploaded_show.grid(row=6, column=3)
+
         self.progress.grid(row=8, column=0, columnspan=3, sticky="we", padx=5, pady=5)
         self.example_label.grid(row=9, column=0, columnspan=3, padx=5, pady=5, sticky="w")
         self.save_btn.grid(row=3, column=3, padx=5, pady=2)
@@ -197,8 +239,6 @@ class SyncApp:
             self.progress.stop()
             self.progress_running = False
 
-
-
     def sync_files(self):
         """Synchronize files with GitHub repo"""
         try:
@@ -228,9 +268,31 @@ class SyncApp:
                                 self.log_message(f"{file} не подходит для синхронизации!")
                             continue
 
+                    # Check if the file is likely binary
+                    is_binary = False
+                    if file.endswith(".ipynb"):
+                        is_binary = False
+                    else:
+                        try:
+                            with open(full_path, "r") as f:
+                                chunk = f.read(1024)  # Read a small chunk to check for text encoding
+                                if '\0' in chunk:  # Check for null bytes, a strong indicator of binary
+                                    is_binary = True
+                        except UnicodeDecodeError:
+                            is_binary = True
+
+
                     # Upload/update file
-                    with open(full_path, "rb") as f:
-                        local_content = f.read()
+                    if is_binary:
+                        with open(full_path, "rb") as f:
+                            local_content = f.read()
+                    else:
+                        try:
+                            with open(full_path, "r", encoding="utf-8") as f:
+                                local_content = f.read().encode("utf-8")
+                        except UnicodeDecodeError:
+                            self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
+                            continue
 
                     if not local_content:
                         self.log_message(f"[ОШИБКА] {file} is empty")
@@ -252,14 +314,14 @@ class SyncApp:
                                 self.log_message(f"{file} без изменений")
                         else:
                             self.log_message(f"[ОШИБКА] {file} is not a file")
-                            
+
                     except Exception as e:
                         if "Not Found" in str(e):
                             repo.create_file(github_path, f"Add {file}", local_content)
                             self.log_message(f"{file} успешно загружен")
                             self.uploaded.set(self.uploaded.get() + 1)  # Increment counter
                         else:
-                            self.log_message(f"[ОШИБКА] {str(e)}")
+                            self.log_message(f"[ОШИБКА] {file}: {str(e)}")
 
         except Exception as e:
             self.log_message(f"[ОШИБКА] {str(e)}")

@@ -29,7 +29,10 @@ class AddFilesWindow(tk.Toplevel):
 
         # File management
         self.add_btn = ttk.Button(self, text="Добавить файл", command=self.add_file)
-                
+        self.helper = ttk.Label(self,text = "Сначала заполните информацию о дисциплине, а затем загружайте файлы")
+        self.helper.grid(row=0, column=0, sticky="e")
+        
+        
         # Use Treeview instead of Listbox
         self.file_list = ttk.Treeview(self, columns=("Number", "File"), show="headings")
         self.file_list.heading("Number", text="Номер")
@@ -39,7 +42,7 @@ class AddFilesWindow(tk.Toplevel):
         self.file_list.bind("<Button-3>", self.show_context_menu)
         
         # Entry for editing numbers
-        self.entry = None
+        # self.entry = None
         self.file_list.bind("<Double-1>", self.on_double_click)
 
         
@@ -52,15 +55,15 @@ class AddFilesWindow(tk.Toplevel):
 
         ttk.Label(self, text="Курс").grid(row=3, column=1, sticky="w")
         self.course_dd = ttk.Combobox(self, textvariable=self.course_var)
-        self.course_dd.grid(row=3, column=0, ipadx=300)
+        self.course_dd.grid(row=3, column=0, sticky="we")
 
         ttk.Label(self, text="Семестр").grid(row=4, column=1, sticky="w")
         self.semester_dd = ttk.Combobox(self, textvariable=self.semester_var)
-        self.semester_dd.grid(row=4, column=0, ipadx=300)
+        self.semester_dd.grid(row=4, column=0, sticky="we")
 
         ttk.Label(self, text="Предмет").grid(row=5, column=1, sticky="w")
         self.subject_dd = ttk.Combobox(self, textvariable=self.subject_var)
-        self.subject_dd.grid(row=5, column=0, ipadx=300)
+        self.subject_dd.grid(row=5, column=0, sticky="we")
         
         
         self.perevodict = {
@@ -73,7 +76,7 @@ class AddFilesWindow(tk.Toplevel):
 
         ttk.Label(self, text="Тип").grid(row=6, column=1, sticky="w")
         self.type_dd = ttk.Combobox(self, textvariable=self.type_var, values=list(self.perevodict.keys()))
-        self.type_dd.grid(row=6, column=0, ipadx=300)
+        self.type_dd.grid(row=6, column=0, sticky="we")
 
         # Convert button
         self.convert_btn = ttk.Button(self, text="Добавить в локальную структуру", command=self.convert_files)
@@ -94,6 +97,9 @@ class AddFilesWindow(tk.Toplevel):
         # Добавляем привязки для автоматического обновления
         self.course_var.trace_add('write', self.update_semesters)
         self.semester_var.trace_add('write', self.update_subjects)
+        
+        for i in range(2): self.grid_columnconfigure(i, weight=1)
+        for i in range(8): self.grid_rowconfigure(i, weight=1)
 
 
     def update_subjects(self, event=None):
@@ -291,23 +297,20 @@ class AddFilesWindow(tk.Toplevel):
 
     def edit_number(self, item):
         """Create an Entry widget to edit the number."""
-        if self.entry is not None:
-            return
-
         index = self.file_list.index(item)
         file_data = self.files[index]
         x, y, width, height = self.file_list.bbox(item, "#1")
-        
-        self.entry = ttk.Entry(self.file_list)
-        self.entry.place(x=x, y=y, width=width, height=height, anchor='nw')
-        self.entry.insert(0, file_data["num"].get())
-        self.entry.focus_set()
-        
-        def save_and_destroy(event=None):
-            file_data["num"].set(self.entry.get())
-            # self.entry.destroy()
-            # self.entry = None
+
+        entry = ttk.Entry(self.file_list)  # Local variable
+        entry.place(x=x, y=y, width=width, height=height, anchor='nw')
+        entry.insert(0, file_data["num"].get())
+        entry.focus_set()
+
+        def save_and_destroy(event=None, entry=entry):  # Pass entry as an argument
+            file_data["num"].set(entry.get())
+            self.file_list.set(item, column="#1", value=entry.get()) # Display the number
+            entry.destroy()
             self.update_paths_text()
 
-        self.entry.bind("<Return>", save_and_destroy)
-        self.entry.bind("<FocusOut>", save_and_destroy)
+        entry.bind("<Return>", save_and_destroy)
+        entry.bind("<FocusOut>", save_and_destroy)
