@@ -82,9 +82,11 @@ class SyncApp:
             self.folder_structure = get_dirs()
             self.save_settings(self.token_var.get(), self.student_var.get(), self.folder_structure)
             self.log_message("[OK] Структура папок создана")
-            self.toggle_progress(False)
+
         except Exception as e:
-            self.__setattr__log_message(f"[ОШИБКА] {type(e).__name__}: {str(e)}")    
+            self.__setattr__log_message(f"[ОШИБКА] {type(e).__name__}: {str(e)}")
+            
+        self.toggle_progress(False)   
 
     @staticmethod
     def load_settings():
