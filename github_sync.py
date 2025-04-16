@@ -29,8 +29,8 @@ class SyncApp:
         self.log_text = tk.Text(height=10, state='disabled')
         self.progress_running = False
         self.all_logs = tk.BooleanVar(value=False)
-        self.uploaded = tk.IntVar(value=0)  # Initialize uploaded counter to 0
-
+        self.uploaded = tk.IntVar(value=0)  # Initialize uploaded counter to 0      
+          
         self.folder_dict = {"seminar": 'sem', "lecture": 'lec', "hw": 'hw', "data": 'data', "other": 'other'}
 
         self.create_widgets()
@@ -38,6 +38,53 @@ class SyncApp:
 
         self.add_files_btn = ttk.Button(self.root, text="Добавить файлы", command=self.open_add_files_window)
         self.add_files_btn.grid(row=10, column=0, padx=5, pady=5)
+        
+        self.folders_synchronized = tk.BooleanVar(value=False)
+        
+        try:
+            self.folder_structure = self.load_settings().get("structure")
+            if not len(list(self.folder_structure.keys())):
+                self.create_folder_structure()
+                self.save_settings(self.token_var.get(), self.student_var.get(), self.folder_structure)
+        except:
+            self.create_folder_structure()
+            self.save_settings(self.token_var.get(), self.student_var.get(), self.folder_structure)
+
+
+
+    
+
+    def create_folder_structure(self):
+        """Create local folder structure from GitHub repo"""
+        self.toggle_progress(True)
+        if not self.token_var.get() or not self.repo_var.get():
+            self.log_message("[ОШИБКА] Token or repository is empty.")
+            return
+
+        try:
+            g = Github(self.token_var.get())
+            repo = g.get_repo(self.repo_var.get())
+
+            def get_dirs(repo_path='', local_path=self.path_var.get()):
+                contents = repo.get_contents(repo_path)
+                dct = {}
+                for item in contents:
+                    if item.type == "dir":
+                        
+                        dct[item.name] = get_dirs(item.path, local_path)
+                        
+                        dir_path = os.path.join(local_path, item.path)
+                        os.makedirs(dir_path, exist_ok=True)
+                        
+                self.log_message(f"[OK] {repo_path} : folders uploaded {len(dct)}")
+                return dct
+
+            self.folder_structure = get_dirs()
+            self.save_settings(self.token_var.get(), self.student_var.get(), self.folder_structure)
+            self.log_message("[OK] Структура папок создана")
+            self.toggle_progress(False)
+        except Exception as e:
+            self.__setattr__log_message(f"[ОШИБКА] {type(e).__name__}: {str(e)}")    
 
     @staticmethod
     def load_settings():
@@ -79,9 +126,8 @@ class SyncApp:
         self.base_entry = ttk.Entry(self.root, textvariable=self.base, width=40)
 
         self.create_btn = ttk.Button(self.root, text="Создать структуру", command=self.run_create_structure)
-        ttk.Label(self.root, text="Скачает сюда всю структуру папок с Git. Подпапку не создаст.").grid(row=5, column=1,
-                                                                                                    sticky="w")
-
+        ttk.Label(self.root, text="Скачает сюда всю структуру папок с Git. Подпапку не создаст. Не нашли нужную папку?").grid(row=5, column=1, sticky="w")
+                
         self.sync_btn = ttk.Button(self.root, text="Синхронизировать", command=self.run_sync)
 
         self.all_logs_entry = ttk.Checkbutton(self.root, text="Все логи", variable=self.all_logs)
@@ -114,7 +160,7 @@ class SyncApp:
         self.log_scroll.grid(row=7, column=3, sticky="ns")
         
         self.uploaded_inf.grid(row=6, column=2)
-        self.uploaded_show.grid(row=6, column=3)
+        self.uploaded_show.grid(row=6, column=3)        
         
         self.progress.grid(row=8, column=0, columnspan=3, sticky="we", padx=5, pady=5)
         self.example_label.grid(row=9, column=0, columnspan=3, padx=5, pady=5, sticky="w")
@@ -149,23 +195,7 @@ class SyncApp:
             self.progress.stop()
             self.progress_running = False
 
-    def create_folder_structure(self):
-        try:
-            g = Github(self.token_var.get())
-            repo = g.get_repo(self.repo_var.get())
 
-            def create_dirs(repo_path="", local_path=self.path_var.get()):
-                contents = repo.get_contents(repo_path)
-                for item in contents:
-                    if item.type == "dir":
-                        dir_path = os.path.join(local_path, item.path)
-                        os.makedirs(dir_path, exist_ok=True)
-                        create_dirs(item.path, local_path)
-
-            create_dirs()
-            self.log_message("[OK] Структура папок создана")
-        except Exception as e:
-            self.log_message(f"[ОШИБКА] {str(e)}")
 
     def sync_files(self):
         """Synchronize files with GitHub repo"""
@@ -220,6 +250,7 @@ class SyncApp:
                                 self.log_message(f"{file} без изменений")
                         else:
                             self.log_message(f"[ОШИБКА] {file} is not a file")
+                            
                     except Exception as e:
                         if "Not Found" in str(e):
                             repo.create_file(github_path, f"Add {file}", local_content)
@@ -243,6 +274,7 @@ class SyncApp:
     def run_create_structure(self):
         self.toggle_progress(True)
         threading.Thread(target=self.threaded_create_structure, daemon=True).start()
+        self.folders_synchronized.set(True)
 
     def threaded_create_structure(self):
         self.create_folder_structure()

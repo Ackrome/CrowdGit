@@ -29,8 +29,7 @@ class AddFilesWindow(tk.Toplevel):
 
         # File management
         self.add_btn = ttk.Button(self, text="Добавить файл", command=self.add_file)
-        self.force_reload = ttk.Button(self, text="Перезагрузить структуру", command=self.force_reload_structure)
-        
+                
         # Use Treeview instead of Listbox
         self.file_list = ttk.Treeview(self, columns=("Number", "File"), show="headings")
         self.file_list.heading("Number", text="Номер")
@@ -43,11 +42,13 @@ class AddFilesWindow(tk.Toplevel):
         self.entry = None
         self.file_list.bind("<Double-1>", self.on_double_click)
 
+        
+        self.unfolder_dict = {value: key for key, value in self.parent.folder_dict.items()}
         # Dropdowns
         self.course_var = tk.StringVar()
         self.semester_var = tk.StringVar()
         self.subject_var = tk.StringVar()
-        self.type_var = tk.StringVar(value="hw")
+        self.type_var = tk.StringVar(value="Домашнее задание")
 
         ttk.Label(self, text="Курс").grid(row=3, column=1, sticky="w")
         self.course_dd = ttk.Combobox(self, textvariable=self.course_var)
@@ -60,9 +61,18 @@ class AddFilesWindow(tk.Toplevel):
         ttk.Label(self, text="Предмет").grid(row=5, column=1, sticky="w")
         self.subject_dd = ttk.Combobox(self, textvariable=self.subject_var)
         self.subject_dd.grid(row=5, column=0, ipadx=300)
+        
+        
+        self.perevodict = {
+            "Семинар": "sem",
+            "Лекция": "lec",
+            "Домашнее задание": "hw",
+            "Данные": "data",
+            "Другое": "other"
+        }
 
         ttk.Label(self, text="Тип").grid(row=6, column=1, sticky="w")
-        self.type_dd = ttk.Combobox(self, textvariable=self.type_var, values=["sem", "hw", "lec", "data", "other"])
+        self.type_dd = ttk.Combobox(self, textvariable=self.type_var, values=list(self.perevodict.keys()))
         self.type_dd.grid(row=6, column=0, ipadx=300)
 
         # Convert button
@@ -70,57 +80,21 @@ class AddFilesWindow(tk.Toplevel):
 
         # Layout
         self.add_btn.grid(row=0, column=0, pady=5, sticky="w")
-        self.force_reload.grid(row=0, column=1, pady=5, sticky="e")
-        ttk.Label(self, text="Не нашли нужную папку? Попробуйте перезагрузить структуру ->").grid(row=0, column=0, sticky="e")
+        
+
+        
         self.paths_text.grid(row=1, column=0, sticky="nsew", padx=5)
         self.scroll.grid(row=1, column=1, sticky="ns")
         self.file_list.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
         self.convert_btn.grid(row=7, column=0, pady=10)
 
-        try:
-            self.folder_structure = self.parent.load_settings().get("structure")
-            if not len(list(self.folder_structure.keys())):
-                self.create_folder_structure()
-                self.parent.save_settings(self.token_var.get(), self.parent.student_var.get(), self.folder_structure)
-        except:
-            self.create_folder_structure()
-            self.parent.save_settings(self.token_var.get(), self.parent.student_var.get(), self.folder_structure)
-
+        
         self.scan_local_structure()
 
         # Добавляем привязки для автоматического обновления
         self.course_var.trace_add('write', self.update_semesters)
         self.semester_var.trace_add('write', self.update_subjects)
 
-    def force_reload_structure(self):
-        self.create_folder_structure()
-        self.parent.save_settings(self.token_var.get(), self.parent.student_var.get(), self.folder_structure)
-        self.parent.log_message("[OK] Структура папок создана")
-
-    def create_folder_structure(self):
-        """Create local folder structure from GitHub repo"""
-        self.parent.toggle_progress(True)
-        if not self.token_var.get() or not self.repo_var.get():
-            self.parent.log_message("[ОШИБКА] Token or repository is empty.")
-            return
-
-        try:
-            g = Github(self.token_var.get())
-            repo = g.get_repo(self.repo_var.get())
-
-            def get_dirs(repo_path=""):
-                contents = repo.get_contents(repo_path)
-                dct = {}
-                for item in contents:
-                    if item.type == "dir":
-                        dct[item.name] = get_dirs(item.path)
-                return dct
-
-            self.folder_structure = get_dirs()
-            self.parent.log_message("[OK] Структура папок создана")
-            self.parent.toggle_progress(False)
-        except Exception as e:
-            self.parent.log_message(f"[ОШИБКА] {type(e).__name__}: {str(e)}")
 
     def update_subjects(self, event=None):
         """Update subject dropdown based on selected course"""
@@ -223,7 +197,7 @@ class AddFilesWindow(tk.Toplevel):
                 else:
                     traverse_structure(value, new_path_parts)
 
-        traverse_structure(self.folder_structure)
+        traverse_structure(self.parent.folder_structure)
 
         self.course_dd['values'] = sorted(self.courses)
 
@@ -235,7 +209,7 @@ class AddFilesWindow(tk.Toplevel):
         course = self.course_var.get()
         semester = self.semester_var.get()
         subject_name = self.subject_var.get()
-        work_type = self.type_var.get()
+        work_type = self.perevodict[self.type_var.get()]
 
         for item_id in self.file_list.get_children():
             index = self.file_list.index(item_id)
@@ -284,14 +258,14 @@ class AddFilesWindow(tk.Toplevel):
                     self.course_var.get(),  # course name
                     self.semester_var.get(),  # semester name
                     subject_folder,  # subject name from dropdown
-                    self.type_var.get()  # hw and others
+                    self.unfolder_dict[self.perevodict[self.type_var.get()]]  # hw and others
                 )
                 os.makedirs(target_dir, exist_ok=True)
 
                 # Generate new filename
                 base = os.path.basename(src)
                 abbrev = subject_folder.split("_")[0]
-                new_name = f"{abbrev}_{self.type_var.get()}_{f['num'].get()}_{self.parent.student_var.get()}.{base.split('.')[-1]}"
+                new_name = f"{abbrev}_{self.perevodict[self.type_var.get()]}_{f['num'].get()}_{self.parent.student_var.get()}.{base.split('.')[-1]}"
 
                 # Copy file
                 shutil.copy(src, os.path.join(target_dir, new_name))
