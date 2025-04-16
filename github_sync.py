@@ -13,10 +13,141 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "saved_settings.json")
+class RotatedButtonToolTip:
+    """
+    Creates a tooltip specifically for the rotated button.
+    """
 
+    def __init__(self, canvas, text="widget info"):
+        self.canvas = canvas
+        self.text = text
+        self.canvas.tag_bind("rotated_button", "<Enter>", self.enter)
+        self.canvas.tag_bind("rotated_button", "<Leave>", self.leave)
+        self.canvas.tag_bind("rotated_button", "<ButtonPress>", self.leave)
+        self.id = None
+        self.tw = None
+
+    def enter(self, event=None):
+        self.schedule()
+
+    def leave(self, event=None):
+        self.unschedule()
+        self.hidetip()
+
+    def schedule(self):
+        self.unschedule()
+        self.id = self.canvas.after(1000, self.showtip)
+
+    def unschedule(self):
+        id_ = self.id
+        self.id = None
+        if id_:
+            self.canvas.after_cancel(id_)
+
+    def showtip(self, event=None):
+        if self.canvas.winfo_exists():
+            # Get the bounding box of the rotated image
+            bbox = self.canvas.bbox("rotated_button")
+            if bbox is not None:
+                x1, y1, x2, y2 = bbox
+                # Calculate the center of the bounding box
+                center_x = (x1 + x2) // 2
+                center_y = (y1 + y2) // 2
+
+                # Get the canvas's position relative to the root window
+                canvas_x = self.canvas.winfo_rootx()
+                canvas_y = self.canvas.winfo_rooty()
+
+                # Calculate the tooltip's position
+                x = canvas_x + center_x
+                y = canvas_y + center_y - 30  # Adjust 30 for desired offset
+
+                # creates a toplevel window
+                self.tw = tk.Toplevel(self.canvas)
+                # Leaves only the label and removes the app window
+                self.tw.wm_overrideredirect(True)
+                self.tw.wm_geometry("+%d+%d" % (x, y))
+                label = tk.Label(
+                    self.tw,
+                    text=self.text,
+                    justify="left",
+                    background="#ffffff",
+                    relief="solid",
+                    borderwidth=1,
+                    font=("tahoma", "8", "normal"),
+                )
+                label.pack(ipadx=1)
+
+    def hidetip(self):
+        tw = self.tw
+        self.tw = None
+        if tw:
+            tw.destroy()
+
+
+class ToolTip:
+    """
+    Creates a tooltip for a given widget.
+    """
+
+    def __init__(self, widget, text="widget info"):
+        self.widget = widget
+        self.text = text
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+        self.widget.bind("<ButtonPress>", self.leave)
+        self.id = None
+        self.tw = None
+
+    def enter(self, event=None):
+        self.schedule()
+
+    def leave(self, event=None):
+        self.unschedule()
+        self.hidetip()
+
+    def schedule(self):
+        self.unschedule()
+        self.id = self.widget.after(1000, self.showtip)
+
+    def unschedule(self):
+        id_ = self.id
+        self.id = None
+        if id_:
+            self.widget.after_cancel(id_)
+
+    def showtip(self, event=None):
+        if self.widget.winfo_exists():
+            x = y = 0
+            bbox = self.widget.bbox()  # Get the bounding box of the entire widget
+            if bbox is not None:
+                x, y, cx, cy = bbox
+                x += self.widget.winfo_rootx() + 25
+                y += self.widget.winfo_rooty() + 20
+                # creates a toplevel window
+                self.tw = tk.Toplevel(self.widget)
+                # Leaves only the label and removes the app window
+                self.tw.wm_overrideredirect(True)
+                self.tw.wm_geometry("+%d+%d" % (x, y))
+                label = tk.Label(
+                    self.tw,
+                    text=self.text,
+                    justify="left",
+                    background="#ffffff",
+                    relief="solid",
+                    borderwidth=1,
+                    font=("tahoma", "8", "normal"),
+                )
+                label.pack(ipadx=1)
+
+    def hidetip(self):
+        tw = self.tw
+        self.tw = None
+        if tw:
+            tw.destroy()
 
 class SyncApp:
-    def __init__(self, root): # Инициализация приложения
+    def __init__(self, root):  # Инициализация приложения
         self.root = root
         self.root.title("GitHub Sync Tool")
 
@@ -35,17 +166,33 @@ class SyncApp:
         self.all_logs = tk.BooleanVar(value=False)
         self.uploaded = tk.IntVar(value=0)  # Initialize uploaded counter to 0
 
-        self.folder_dict = {"seminar": 'sem', "lecture": 'lec', "hw": 'hw', "data": 'data', "other": 'other'}
+        self.folder_dict = {
+            "seminar": "sem",
+            "lecture": "lec",
+            "hw": "hw",
+            "data": "data",
+            "other": "other",
+        }
         self.buttons = {}
         self.create_widgets()
         self.create_buttons()
         self.grid_layout()
         self.create_rotated_button()
-        
 
-        self.token_var.trace_add('write', lambda *args: self.check_token())  # Добавляем отслеживание изменений токена
-        self.token_var.set(GITHUB_TOKEN+' ')
+        self.token_var.trace_add(
+            "write", lambda *args: self.check_token()
+        )  # Добавляем отслеживание изменений токена
+        self.token_var.set(GITHUB_TOKEN + " ")
         self.token_var.set(GITHUB_TOKEN)
+
+        # Move the logic that depends on buttons here
+        if not self.folder_structure:
+            self.create_folder_structure()
+            self.save_settings(
+                self.token_var.get(),
+                self.student_var.get(),
+                self.folder_structure,
+            )
         
         try:
             if len(self.folder_structure.items()):
@@ -53,10 +200,8 @@ class SyncApp:
             else:
                 self.buttons["add_files_btn"].grid_remove()
         except:
-            self.create_folder_structure()
-            self.save_settings(self.token_var.get(), self.student_var.get(), self.folder_structure)
-            self.buttons["add_files_btn"].grid()
-            
+            pass
+
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(7, weight=1)
 
@@ -76,16 +221,53 @@ class SyncApp:
         self.buttons["log_text"] = self.log_text
         self.buttons["example_label"] = ttk.Label(self.root, text="Пример верного path: 'FU\\course_2\\semester_4\\nm_Численные Методы\\hw\\nm_hw_4_Kidysyuk.ipynb'")
         self.buttons["progress"] = self.progress
-
         self.buttons["add_files_btn"].grid(row=10, column=0, padx=5, pady=5)
+        
+        
+        
+        # Add tooltips
+        ToolTip(
+            self.buttons["add_files_btn"],
+            "Открывает окно для добавления файлов в локальную структуру.",
+        )
+        ToolTip(
+            self.buttons["create_btn"],
+            "Скачивает структуру папок из репозитория GitHub в указанную локальную директорию.",
+        )
+        ToolTip(
+            self.buttons["sync_btn"],
+            "Синхронизирует локальные файлы с репозиторием GitHub.",
+        )
+        ToolTip(
+            self.buttons["all_logs_entry"],
+            "Включает отображение всех логов, включая информацию о пропущенных файлах.",
+        )
+        ToolTip(
+            self.buttons["save_btn"],
+            "Сохраняет текущие настройки профиля (токен, имя студента).",
+        )
+        ToolTip(
+            self.buttons["create_info"],
+            "Информация о том, как работает создание структуры.",
+        )
+        ToolTip(
+            self.buttons["uploaded_info"],
+            "Показывает количество файлов, загруженных на GitHub.",
+        )
+        ToolTip(
+            self.buttons["example_label"],
+            "Показывает пример правильного пути к файлу.",
+        )
+
 
     def set_buttons_visibility(self, visible):
-        # Установка видимости кнопок
+        # Set button visibility
         for button in self.buttons.values():
             if visible:
                 button.grid()
             else:
                 button.grid_remove()
+
     
 
     def check_token(self, *args):
@@ -100,10 +282,11 @@ class SyncApp:
             self.root.geometry("")  # Resize the window to fit its contents
 
 
+
     def create_folder_structure(self):
         """Create local folder structure from GitHub repo"""
         self.toggle_progress(True) # Включаем прогрессбар
-        self.add_files_btn.grid_remove()
+        self.buttons['add_files_btn'].grid_remove()
         if not self.token_var.get() or not self.repo_var.get():
             self.toggle_progress(False)
             return
@@ -359,7 +542,6 @@ class SyncApp:
         # Запуск создания структуры
         self.toggle_progress(True)
         threading.Thread(target=self.threaded_create_structure, daemon=True).start()
-        self.folders_synchronized.set(True)
 
     def threaded_create_structure(self):
         # Потоковое создание структуры
@@ -415,6 +597,9 @@ class SyncApp:
 
         # Bind the click event to the image tag
         self.rotated_canvas.tag_bind("rotated_button", "<Button-1>", self.save_profile)
+        
+        RotatedButtonToolTip(self.rotated_canvas, "Сохраняет текущие настройки профиля (токен, имя студента).")
+
 
         # Remove old button
         self.buttons["save_btn"].grid_remove()
