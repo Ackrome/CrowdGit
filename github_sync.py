@@ -11,14 +11,12 @@ from AddFilesWindow import AddFilesWindow
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "saved_settings.json")
 
 
-
 class SyncApp:
     def __init__(self, root):
         self.root = root
         self.root.title("GitHub Sync Tool")
-        
 
-        #Смотрим, юзер уже работал с приложением или нет
+        # Смотрим, юзер уже работал с приложением или нет
         settings = self.load_settings()
         GITHUB_TOKEN = settings.get("token", "")
         STUDENT_NAME = settings.get("student", "")
@@ -30,27 +28,29 @@ class SyncApp:
         self.base = tk.StringVar(value="FU")
         self.log_text = tk.Text(height=10, state='disabled')
         self.progress_running = False
+        self.all_logs = tk.BooleanVar(value=False)
+        self.uploaded = tk.IntVar(value=0)  # Initialize uploaded counter to 0
 
-        self.folder_dict = {"seminar":'sem', "lecture":'lec', "hw":'hw', "data":'data', "other":'other'}
+        self.folder_dict = {"seminar": 'sem', "lecture": 'lec', "hw": 'hw', "data": 'data', "other": 'other'}
 
         self.create_widgets()
         self.grid_layout()
-        
+
         self.add_files_btn = ttk.Button(self.root, text="Добавить файлы", command=self.open_add_files_window)
         self.add_files_btn.grid(row=10, column=0, padx=5, pady=5)
-    
+
     @staticmethod
     def load_settings():
         if os.path.exists(SETTINGS_FILE):
             with open(SETTINGS_FILE, "r") as f:
                 return json.load(f)
         return {}
-    
+
     @staticmethod
-    def save_settings(token, student,structure = {}):
+    def save_settings(token, student, structure={}):
         with open(SETTINGS_FILE, "w") as f:
             json.dump({"token": token, "student": student, "structure": structure}, f)
-    
+
     def open_add_files_window(self):
         """Open window for adding files to structure"""
         print("open_add_files_window: Starting")
@@ -60,8 +60,6 @@ class SyncApp:
         else:
             self.add_window = AddFilesWindow(self, self.path_var.get(), self.token_var, self.repo_var)
             print("open_add_files_window: New window created")
-
-   
 
     def create_widgets(self):
         ttk.Label(self.root, text="GitHub Token:").grid(row=0, column=0, sticky="w")
@@ -76,14 +74,20 @@ class SyncApp:
 
         ttk.Label(self.root, text="Репозиторий:").grid(row=3, column=0, sticky="w")
         self.repo_entry = ttk.Entry(self.root, textvariable=self.repo_var, width=40)
-        
+
         ttk.Label(self.root, text="Базовая папка:").grid(row=4, column=0, sticky="w")
         self.base_entry = ttk.Entry(self.root, textvariable=self.base, width=40)
 
         self.create_btn = ttk.Button(self.root, text="Создать структуру", command=self.run_create_structure)
-        ttk.Label(self.root, text="Скачает сюда всю структуру папок с Git. Подпапку не создаст.").grid(row=5, column=1, sticky="w")
+        ttk.Label(self.root, text="Скачает сюда всю структуру папок с Git. Подпапку не создаст.").grid(row=5, column=1,
+                                                                                                    sticky="w")
 
         self.sync_btn = ttk.Button(self.root, text="Синхронизировать", command=self.run_sync)
+
+        self.all_logs_entry = ttk.Checkbutton(self.root, text="Все логи", variable=self.all_logs)
+
+        self.uploaded_inf = ttk.Label(self.root, text="Загружено:")  # Display "Загружено:"
+        self.uploaded_show = ttk.Label(self.root, textvariable=self.uploaded)  # Display uploaded count
 
         self.log_scroll = ttk.Scrollbar(self.root, orient="vertical", command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=self.log_scroll.set)
@@ -97,7 +101,6 @@ class SyncApp:
 
         self.save_btn = ttk.Button(self.root, text="Сохранить профиль", command=self.save_profile)
 
-
     def grid_layout(self):
         self.token_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=2, sticky="we")
         self.path_entry.grid(row=1, column=1, padx=5, pady=2, sticky="we")
@@ -109,9 +112,14 @@ class SyncApp:
         self.sync_btn.grid(row=6, column=0, padx=5, pady=5)
         self.log_text.grid(row=7, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
         self.log_scroll.grid(row=7, column=3, sticky="ns")
+        
+        self.uploaded_inf.grid(row=6, column=2)
+        self.uploaded_show.grid(row=6, column=3)
+        
         self.progress.grid(row=8, column=0, columnspan=3, sticky="we", padx=5, pady=5)
         self.example_label.grid(row=9, column=0, columnspan=3, padx=5, pady=5, sticky="w")
         self.save_btn.grid(row=3, column=3, padx=5, pady=2)
+        self.all_logs_entry.grid(row=10, column=1, padx=5, pady=2)
 
     def save_profile(self):
         token = self.token_var.get()
@@ -162,9 +170,11 @@ class SyncApp:
     def sync_files(self):
         """Synchronize files with GitHub repo"""
         try:
+            self.uploaded.set(0)  # Reset the counter at the start of each sync
+
             # Regex pattern: subj_abbrev_type_num_name.ext (e.g. nm_hw_4_Kidysyuk.ipynb)
             pattern = re.compile(r"^([a-z]+)_(sem|hw|lec)_(\d+)_(.+)\.(\w+)$")
-            
+
             g = Github(self.token_var.get())
             repo = g.get_repo(self.repo_var.get())
             student = self.student_var.get()
@@ -182,32 +192,50 @@ class SyncApp:
                     else:
                         match = pattern.match(file)
                         if not match or student not in file:
-                            self.log_message(f"{file} не подходит для синхронизации!")
+                            if self.all_logs.get():
+                                self.log_message(f"{file} не подходит для синхронизации!")
                             continue
 
                     # Upload/update file
                     with open(full_path, "rb") as f:
-                        content = f.read()
-                    
+                        local_content = f.read()
+
+                    if not local_content:
+                        self.log_message(f"[ОШИБКА] {file} is empty")
+                        continue
+
                     try:
                         contents = repo.get_contents(github_path)
-                        if contents.decoded_content != content:
-                            repo.update_file(contents.path, f"Update {file}", content, contents.sha)
-                            self.log_message(f"{file} успешно обновлен")
+                        if contents.type == "file":
+                            try:
+                                github_content = contents.decoded_content
+                            except UnicodeDecodeError:
+                                github_content = b''
+                                self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
+                            if github_content != local_content:
+                                repo.update_file(contents.path, f"Update {file}", local_content, contents.sha)
+                                self.log_message(f"{file} успешно обновлен")
+                                self.uploaded.set(self.uploaded.get() + 1)  # Increment counter
+                            else:
+                                self.log_message(f"{file} без изменений")
                         else:
-                            self.log_message(f"{file} без изменений")
-                    except:
-                        repo.create_file(github_path, f"Add {file}", content)
-                        self.log_message(f"{file} успешно загружен")
-                        
+                            self.log_message(f"[ОШИБКА] {file} is not a file")
+                    except Exception as e:
+                        if "Not Found" in str(e):
+                            repo.create_file(github_path, f"Add {file}", local_content)
+                            self.log_message(f"{file} успешно загружен")
+                            self.uploaded.set(self.uploaded.get() + 1)  # Increment counter
+                        else:
+                            self.log_message(f"[ОШИБКА] {str(e)}")
+
         except Exception as e:
             self.log_message(f"[ОШИБКА] {str(e)}")
-            
+
     def convert_path(self, rel_path):
         parts = rel_path.split(os.sep)
         if "data" in parts:
             i = parts.index("data")
-            parts = parts[:i+1] + [self.student_var.get()] + parts[i+1:]
+            parts = parts[:i + 1] + [self.student_var.get()] + parts[i + 1:]
         if parts[0] == "FU":
             parts = parts[1:]
         return parts
@@ -226,8 +254,8 @@ class SyncApp:
 
     def threaded_sync(self):
         self.sync_files()
-        #save_settings(self.token_var.get(), self.student_var.get())
         self.toggle_progress(False)
+
 
 if __name__ == "__main__":
     root = tk.Tk()
