@@ -9,6 +9,7 @@ from github import Github
 import json
 import traceback
 from AddFilesWindow import AddFilesWindow
+from ToolTip import ToolTip
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 # Configure logging
@@ -22,67 +23,6 @@ logging.basicConfig(
 )
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "saved_settings.json")
-
-class ToolTip:
-    """
-    Creates a tooltip for a given widget.
-    """
-
-    def __init__(self, widget, text="widget info"):
-        self.widget = widget
-        self.text = text
-        self.widget.bind("<Enter>", self.enter)
-        self.widget.bind("<Leave>", self.leave)
-        self.widget.bind("<ButtonPress>", self.leave)
-        self.id = None
-        self.tw = None
-
-    def enter(self, event=None):
-        self.schedule()
-
-    def leave(self, event=None):
-        self.unschedule()
-        self.hidetip()
-
-    def schedule(self):
-        self.unschedule()
-        self.id = self.widget.after(100, self.showtip)
-
-    def unschedule(self):
-        id_ = self.id
-        self.id = None
-        if id_:
-            self.widget.after_cancel(id_)
-
-    def showtip(self, event=None):
-        if self.widget.winfo_exists():
-            x = y = 0
-            bbox = self.widget.bbox()  # Get the bounding box of the entire widget
-            if bbox is not None:
-                x, y, cx, cy = bbox
-                x += self.widget.winfo_rootx() + 25
-                y += self.widget.winfo_rooty() + 20
-                # creates a toplevel window
-                self.tw = tk.Toplevel(self.widget)
-                # Leaves only the label and removes the app window
-                self.tw.wm_overrideredirect(True)
-                self.tw.wm_geometry("+%d+%d" % (x, y))
-                label = tk.Label(
-                    self.tw,
-                    text=self.text,
-                    justify="left",
-                    background="#ffffff",
-                    relief="solid",
-                    borderwidth=1,
-                    font=("tahoma", "8", "normal"),
-                )
-                label.pack(ipadx=1)
-
-    def hidetip(self):
-        tw = self.tw
-        self.tw = None
-        if tw:
-            tw.destroy()
 
 class SyncApp:
     def __init__(self, root):  # Инициализация приложения
@@ -169,36 +109,71 @@ class SyncApp:
         # Add tooltips
         ToolTip(
             self.buttons["add_files_btn"],
-            "Открывает окно для добавления файлов в локальную структуру.",
+            "Открывает окно для добавления файлов в локальную структуру.\n"
+            "В этом окне вы можете выбрать файлы, указать их тип (домашнее задание, лекция и т.д.),\n"
+            "а также указать номер задания. После этого файлы будут скопированы в соответствующие папки.",
         )
         ToolTip(
             self.buttons["create_btn"],
-            "Скачивает структуру папок из репозитория GitHub в указанную локальную директорию.",
+            "Скачивает структуру папок из репозитория GitHub в указанную локальную директорию.\n"
+            "Это действие создаст локальные папки, соответствующие структуре репозитория.\n"
+            "Если папки уже существуют, они не будут перезаписаны.",
         )
         ToolTip(
             self.buttons["sync_btn"],
-            "Синхронизирует локальные файлы с репозиторием GitHub.",
+            "Синхронизирует локальные файлы с репозиторием GitHub.\n"
+            "Проверяет наличие изменений в локальных файлах и загружает их на GitHub.\n"
+            "Также проверяет наличие новых файлов на GitHub и скачивает их локально.",
         )
         ToolTip(
             self.buttons["all_logs_entry"],
-            "Включает отображение всех логов, включая информацию о пропущенных файлах.",
+            "Включает отображение всех логов, включая информацию о пропущенных файлах.\n"
+            "Полезно для отладки и проверки, какие файлы не были синхронизированы.",
         )
         ToolTip(
             self.buttons["save_btn"],
-            "Сохраняет текущие настройки профиля (токен, имя студента).",
+            "Сохраняет текущие настройки профиля (токен, имя студента).\n"
+            "Сохраненные настройки будут автоматически загружены при следующем запуске приложения.",
         )
         ToolTip(
             self.buttons["create_info"],
-            "Информация о том, как работает создание структуры.",
+            "Информация о том, как работает создание структуры.\n"
+            "Приложение скачивает структуру папок с GitHub и создает их локально.\n"
+            "Подпапки не создаются, если их нет в репозитории.",
         )
         ToolTip(
             self.buttons["uploaded_info"],
-            "Показывает количество файлов, загруженных на GitHub.",
+            "Показывает количество файлов, загруженных на GitHub.\n"
+            "Счетчик обновляется после каждой успешной синхронизации.",
         )
         ToolTip(
             self.buttons["example_label"],
-            "Показывает пример правильного пути к файлу.",
+            "Показывает пример правильного пути к файлу.\n"
+            "Файлы должны быть расположены в папках, соответствующих структуре репозитория.\n"
+            "Имя файла должно соответствовать шаблону: 'abbrev_type_num_student.ext'.",
         )
+
+        ToolTip(self.token_entry, "Введите ваш персональный токен доступа к GitHub.\n"
+                "Токен можно сгенерировать в настройках вашего аккаунта GitHub.")
+        ToolTip(self.path_entry, "Укажите путь к локальной папке, где будет храниться структура.\n"
+                "Это место, куда будут скачаны файлы с GitHub и куда будут загружаться ваши локальные изменения.")
+        ToolTip(self.student_entry, "Введите вашу фамилию.\n"
+                "Это имя будет использоваться в именах файлов при синхронизации.")
+        ToolTip(self.repo_entry, "Укажите имя репозитория на GitHub в формате 'username/repository'.\n"
+                "Например: 'kvdep/CoolSekeleton'.")
+        ToolTip(self.base_entry, "Укажите базовую папку для вашей структуры.\n"
+                "Например: 'FU'.")
+        
+        ToolTip(self.log_text, "Здесь отображаются логи работы приложения.\n"
+                "Вы можете отслеживать процесс синхронизации и создания структуры.")
+        
+        ToolTip(self.browse_btn, "Нажмите, чтобы выбрать папку для локальной структуры.")
+        
+        ToolTip(self.progress, "Индикатор выполнения текущей операции.")
+
+
+
+
 
 
     def set_buttons_visibility(self, visible):

@@ -6,6 +6,8 @@ from collections import defaultdict
 from tkinter import simpledialog
 import shutil
 import traceback
+from ToolTip import ToolTip
+
 
 class AddFilesWindow(tk.Toplevel):
     def __init__(self, parent, base_path, token_var, repo_var):
@@ -83,12 +85,14 @@ class AddFilesWindow(tk.Toplevel):
 
         # Layout
         self.add_btn.grid(row=0, column=0, pady=5, sticky="w")
-        
+        self.add_btn.grid_remove() # Add this line
 
-        
         self.paths_text.grid(row=1, column=0, sticky="nsew", padx=5)
+        self.paths_text.grid_remove() # Add this line
         self.scroll.grid(row=1, column=1, sticky="ns")
+        self.scroll.grid_remove() # Add this line
         self.file_list.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+        self.file_list.grid_remove() # Add this line
         self.convert_btn.grid(row=7, column=0, pady=10)
 
         
@@ -97,15 +101,64 @@ class AddFilesWindow(tk.Toplevel):
         # Добавляем привязки для автоматического обновления
         self.course_var.trace_add('write', self.update_semesters)
         self.semester_var.trace_add('write', self.update_subjects)
+        self.course_var.trace_add('write', self.check_fields) # Add this line
+        self.semester_var.trace_add('write', self.check_fields) # Add this line
+        self.subject_var.trace_add('write', self.check_fields) # Add this line
+        self.type_var.trace_add('write', self.check_fields) # Add this line
         
         for i in range(2): self.grid_columnconfigure(i, weight=1)
         for i in range(8): self.grid_rowconfigure(i, weight=1)
+        
+        
+        # Add tooltips
+        ToolTip(self.add_btn, "Нажмите, чтобы выбрать файлы для добавления в структуру.")
+        ToolTip(self.helper, "Заполните информацию о курсе, семестре, предмете и типе работы, чтобы начать добавлять файлы.")
+        ToolTip(self.file_list, "Список добавленных файлов. Двойной клик на номере для редактирования. Правый клик для удаления или просмотра местоположения.")
+        ToolTip(self.course_dd, "Выберите курс из списка.")
+        ToolTip(self.semester_dd, "Выберите семестр из списка.")
+        ToolTip(self.subject_dd, "Выберите предмет из списка.")
+        ToolTip(self.type_dd, "Выберите тип работы (Домашнее задание, Лекция, Семинар и т.д.).")
+        ToolTip(self.convert_btn, "Нажмите, чтобы скопировать выбранные файлы в локальную структуру с правильными именами.")
+        ToolTip(self.paths_text, "Здесь отображаются пути к файлам, которые будут скопированы, и их новые имена.")
+
+        self.update()  # Force the window to update its layout
+        self.geometry("")  # Resize the window to fit its contents
+        
+
+        
+        
+    def check_fields(self, *args):
+        """Check if all fields are filled and show/hide widgets accordingly."""
+        if all([self.course_var.get(), self.semester_var.get(), self.subject_var.get(), self.type_var.get()]):
+            self.file_list.grid()
+            self.add_btn.grid()
+            self.paths_text.grid()
+            self.scroll.grid()
+            self.update()  # Force the window to update its layout
+            self.geometry("")  # Resize the window to fit its contents
+        else:
+            self.file_list.grid_remove()
+            self.add_btn.grid_remove()
+            self.paths_text.grid_remove()
+            self.scroll.grid_remove()
+            self.update()  # Force the window to update its layout
+            self.geometry("")  # Resize the window to fit its contents
 
 
-    def update_subjects(self, event=None):
+    '''def update_subjects(self, event=None):
         """Update subject dropdown based on selected course"""
         course = self.course_var.get()
-        self.subject_dd["values"] = sorted(self.subjects.get(course, []))
+        self.subject_dd["values"] = sorted(self.subjects.get(course, []))'''
+        
+        
+    def update_subjects(self, *args):
+        """Обновляем список предметов при выборе семестра"""
+        course = self.course_var.get()
+        semester = self.semester_var.get()
+        if not self.subjects_dict:
+            return
+        self.subject_dd['values'] = sorted(self.subjects_dict.get(course, {}).get(semester, []))
+        self.subject_var.set('')
 
     def add_file(self):
         """Add file to processing list"""
@@ -158,15 +211,7 @@ class AddFilesWindow(tk.Toplevel):
         self.semester_dd['values'] = sorted(self.semesters_dict.get(course, []))
         self.semester_var.set('')
         self.update_subjects()  # Call update_subjects here
-
-    def update_subjects(self, *args):
-        """Обновляем список предметов при выборе семестра"""
-        course = self.course_var.get()
-        semester = self.semester_var.get()
-        if not self.subjects_dict:
-            return
-        self.subject_dd['values'] = sorted(self.subjects_dict.get(course, {}).get(semester, []))
-        self.subject_var.set('')
+    
 
     def scan_local_structure(self):
         """
