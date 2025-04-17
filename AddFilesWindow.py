@@ -124,7 +124,7 @@ class AddFilesWindow(tk.Toplevel):
         self.update()  # Force the window to update its layout
         self.geometry("")  # Resize the window to fit its contents
         
-
+        self.check_duplicates()
         
         
     def check_fields(self, *args):
@@ -143,22 +143,9 @@ class AddFilesWindow(tk.Toplevel):
             self.scroll.grid_remove()
             self.update()  # Force the window to update its layout
             self.geometry("")  # Resize the window to fit its contents
-
-
-    '''def update_subjects(self, event=None):
-        """Update subject dropdown based on selected course"""
-        course = self.course_var.get()
-        self.subject_dd["values"] = sorted(self.subjects.get(course, []))'''
+        self.check_duplicates()
         
-        
-    def update_subjects(self, *args):
-        """Обновляем список предметов при выборе семестра"""
-        course = self.course_var.get()
-        semester = self.semester_var.get()
-        if not self.subjects_dict:
-            return
-        self.subject_dd['values'] = sorted(self.subjects_dict.get(course, {}).get(semester, []))
-        self.subject_var.set('')
+    
 
     def add_file(self):
         """Add file to processing list"""
@@ -167,15 +154,10 @@ class AddFilesWindow(tk.Toplevel):
             for path in paths:
                 self.files.append({"path": path, "num": tk.StringVar(value="")})
                 self.file_list.insert("", "end", values=("", os.path.basename(path)))
+            
             self.update_paths_text()
-
-    def show_context_menu(self, event):
-        """Show right-click menu for file operations"""
-        menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="Удалить", command=lambda: self.remove_file(event))
-        menu.add_command(label="Местоположение", command=lambda: self.show_file_location(event))
-        menu.tk_popup(event.x_root, event.y_root)
-
+            self.check_duplicates()
+            
     def remove_file(self, event):
         """Remove selected file from list"""
         selection = self.file_list.selection()
@@ -185,6 +167,17 @@ class AddFilesWindow(tk.Toplevel):
             del self.files[index]
             self.file_list.delete(item)
             self.update_paths_text()
+            self.check_duplicates()
+            # Re-index the files
+            for i, file_data in enumerate(self.files):
+                self.file_list.item(self.file_list.get_children()[i], values=(file_data["num"].get(), os.path.basename(file_data["path"])))
+
+    def show_context_menu(self, event):
+        """Show right-click menu for file operations"""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Удалить", command=lambda: self.remove_file(event))
+        menu.add_command(label="Местоположение", command=lambda: self.show_file_location(event))
+        menu.tk_popup(event.x_root, event.y_root)
 
     def show_file_location(self, event):
         """Open file location in explorer"""
@@ -203,6 +196,16 @@ class AddFilesWindow(tk.Toplevel):
                 return folder.split("_")[0]
         return "unknown"
 
+    # Обновляем дропдауны
+    def update_subjects(self, *args):
+        """Обновляем список предметов при выборе семестра"""
+        course = self.course_var.get()
+        semester = self.semester_var.get()
+        if not self.subjects_dict:
+            return
+        self.subject_dd['values'] = sorted(self.subjects_dict.get(course, {}).get(semester, []))
+        self.subject_var.set('')
+    
     def update_semesters(self, *args):
         """Обновляем список семестров при выборе курса"""
         course = self.course_var.get()
@@ -294,13 +297,12 @@ class AddFilesWindow(tk.Toplevel):
             self.paths_text.insert("end", display_text)
 
         self.paths_text.configure(state='disabled')
+        self.check_duplicates()
 
     def convert_files(self):
         """Rename and move files according to structure"""
         success = True
-        for item_id in self.file_list.get_children():
-            index = self.file_list.index(item_id)
-            f = self.files[index]
+        for f in self.files:
             try:
                 if not all([f["num"].get(), self.course_var.get(), self.semester_var.get(), self.subject_var.get()]):
                     raise ValueError("Missing parameters")
@@ -341,6 +343,7 @@ class AddFilesWindow(tk.Toplevel):
             messagebox.showinfo("Успех", "Файлы успешно конвертированы")
         else:
             messagebox.showerror("Ошибка", "Ошибка конвертации файлов")
+
             
     def on_double_click(self, event):
         """Handle double-click on a Treeview item."""
@@ -367,6 +370,40 @@ class AddFilesWindow(tk.Toplevel):
             self.file_list.set(item, column="#1", value=entry.get()) # Display the number
             entry.destroy()
             self.update_paths_text()
+            self.check_duplicates()
 
         entry.bind("<Return>", save_and_destroy)
         entry.bind("<FocusOut>", save_and_destroy)
+    
+    def check_duplicates(self):
+        """Check for duplicate file numbers and highlight them."""
+        duplicates = []
+        numbers = {}
+        for item_id in self.file_list.get_children():
+            index = self.file_list.index(item_id)
+            file_data = self.files[index]
+            num = file_data["num"].get()
+            if num:
+                if num in numbers:
+                    duplicates.append(item_id)
+                    duplicates.append(numbers[num])
+                else:
+                    numbers[num] = item_id
+
+        # Reset background color for all items
+        for item_id in self.file_list.get_children():
+            self.file_list.item(item_id, tags=())
+
+        # Highlight duplicates
+        for item_id in set(duplicates):
+            self.file_list.item(item_id, tags=("duplicate",))
+
+        # Configure tag for duplicate items
+        self.file_list.tag_configure("duplicate", background="red")
+
+        # Enable/disable convert button
+        if duplicates:
+            self.convert_btn.config(state="disabled")
+        else:
+            self.convert_btn.config(state="normal")
+

@@ -13,6 +13,11 @@ from ToolTip import ToolTip
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 from get_theme import get_system_theme
 import sv_ttk
+import time
+import requests
+from requests.exceptions import ReadTimeout
+
+
 
 # Configure logging
 logging.basicConfig(
@@ -44,6 +49,7 @@ class SyncApp:
         GITHUB_TOKEN = settings.get("token", "")
         STUDENT_NAME = settings.get("student", "")
         self.folder_structure = settings.get("structure")
+        
 
         self.token_var = tk.StringVar(value=GITHUB_TOKEN if GITHUB_TOKEN else "")
         self.path_var = tk.StringVar(value=os.getcwd())
@@ -53,7 +59,8 @@ class SyncApp:
         self.progress_running = False
         self.all_logs = tk.BooleanVar(value=False)
         self.uploaded = tk.IntVar(value=0)  # Initialize uploaded counter to 0
-
+        
+        
         self.folder_dict = {
             "seminar": "sem",
             "lecture": "lec",
@@ -66,7 +73,10 @@ class SyncApp:
         self.create_buttons()
         self.grid_layout()
         self.create_rotated_button()
-
+        self.update_rotated_button_colors()
+                
+        self.set_theme(settings.get("theme", get_system_theme())) # Применим тему
+        
         self.token_var.trace_add(
             "write", lambda *args: self.check_token()
         )  # Добавляем отслеживание изменений токена
@@ -94,7 +104,9 @@ class SyncApp:
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(7, weight=1)
         
-        self.load_theme()
+        self.cancel_flag = False
+        
+        
 
 
         
@@ -118,7 +130,12 @@ class SyncApp:
         self.buttons["about_btn"] = ttk.Button(self.root, text="О программе", command=self.show_about_menu)
         self.buttons["about_btn"].grid(row=10, column=3, padx=5, pady=2)
 
-        
+
+        self.buttons["cancel_btn"] = ttk.Button(self.root, text="Отмена", command=self.cancel_operation)
+        self.buttons["cancel_btn"].grid(row=8, column=3, padx=5, pady=5) # Добавляем кнопку отмены
+        self.buttons["cancel_btn"].grid_remove() # Скрываем кнопку по умолчанию
+
+
         
         # Add tooltips
         ToolTip(
@@ -231,23 +248,33 @@ class SyncApp:
         appearance_window.title("Внешний вид")
 
         # Add theme options here (e.g., light, dark)
-        ttk.Label(appearance_window, text="Выберите тему:").pack(pady=5)
+        ttk.Label(appearance_window, text="Выберите тему:").grid(row=0, column=0, sticky="nsew")
+
 
         # Example: Add a button to switch to a dark theme
         dark_theme_btn = ttk.Button(appearance_window, text="Темная тема", command=lambda: self.set_theme("dark"))
-        dark_theme_btn.pack(pady=5)
+        dark_theme_btn.grid(row=1, column=0, sticky='nsew')
+
 
         # Example: Add a button to switch to a light theme
         light_theme_btn = ttk.Button(appearance_window, text="Светлая тема", command=lambda: self.set_theme("light"))
-        light_theme_btn.pack(pady=5)
+        light_theme_btn.grid(row=2, column=0, sticky='nsew')
+        
+        # Example: Add a button to switch to a light theme
+        light_theme_btn = ttk.Button(appearance_window, text="Использовать системную", command=lambda: self.load_theme())
+        light_theme_btn.grid(row=3, column=0, sticky='nsew')
+
     
     def set_theme(self, theme):
         """Sets the application's theme (light or dark)."""
-        if theme in ["dark", "light", ""]:
+        if theme in ["dark", "light"]:
             sv_ttk.set_theme(theme)
             self.update_tooltips_theme()
+            self.update_rotated_button_colors()
+            self.save_profile() # Сохраним тему
         else:
             print("Unknown theme")
+
             
     def update_tooltips_theme(self):
         """Update the theme of all tooltips."""
@@ -352,13 +379,17 @@ class SyncApp:
             repo = g.get_repo(self.repo_var.get())
 
             def get_dirs(repo_path='', local_path=self.path_var.get()): # Рекурсивная функция для обхода папок
+                if self.cancel_flag:
+                    self.log_message("[INFO] Создание структуры прервано.")
+                    return {} # Выходим из метода, если установлен флаг отмены
                 contents = repo.get_contents(repo_path)
                 dct = {}
                 for item in contents:
+                    if self.cancel_flag:
+                        self.log_message("[INFO] Создание структуры прервано.")
+                        return {} # Выходим из метода, если установлен флаг отмены
                     if item.type == "dir":
-
                         dct[item.name] = get_dirs(item.path, local_path)
-
                         dir_path = os.path.join(local_path, item.path)
                         os.makedirs(dir_path, exist_ok=True)
 
@@ -384,14 +415,21 @@ class SyncApp:
         if os.path.exists(SETTINGS_FILE):
             logging.info("Loading settings from file.")
             with open(SETTINGS_FILE, "r") as f:
-                return json.load(f)
+                settings = json.load(f)
+                settings["theme"] = settings.get("theme", "light") # Добавим получение темы, если ее нет, то light
+                return settings
         return {}
-
+    
     @staticmethod
-    def save_settings(token, student, structure={}):
+    def save_settings(token, student, structure={}, theme="light"): # Добавим параметр theme
         logging.info("Saving settings to file.")
         with open(SETTINGS_FILE, "w") as f:
-            json.dump({"token": token, "student": student, "structure": structure}, f)
+            json.dump({"token": token, "student": student, "structure": structure, "theme": theme}, f) # Добавим theme в словарь
+
+    def cancel_operation(self):
+        self.cancel_flag = True
+        self.log_message("[INFO] Операция отменена пользователем.")
+        self.buttons["cancel_btn"].grid_remove() # Скрываем кнопку после отмены
 
     def open_add_files_window(self):
         """Open window for adding files to structure"""
@@ -421,15 +459,16 @@ class SyncApp:
         # Сохранение профиля
         token = self.token_var.get()
         student = self.student_var.get()
+        theme = sv_ttk.get_theme() # Получим текущую тему
         if token.strip() and student.strip():
             logging.info("Saving profile.")
-            self.save_settings(token, student, self.folder_structure)
+            self.save_settings(token, student, self.folder_structure, theme) # Передадим тему
             self.log_message("[OK] Профиль сохранён") # Вывод сообщения в лог
             logging.info("Profile saved successfully.")
         else:
             self.log_message("[ОШИБКА] Поля не должны быть пустыми")
             logging.warning("Failed to save profile: Fields are empty.")
-            
+          
     def select_path(self):
         # Выбор пути
         path = filedialog.askdirectory()
@@ -458,99 +497,168 @@ class SyncApp:
 
     def sync_files(self):
         """Synchronize files with GitHub repo"""
-        try:
-            self.uploaded.set(0)  # Reset the counter at the start of each sync
+        self.uploaded.set(0)  # Reset the counter at the start of each sync
 
-            # Шаблон регулярного выражения: subj_abbrev_type_num_name.ext (e.g. nm_hw_4_Kidysyuk.ipynb)
-            pattern = re.compile(r"^([a-z]+)_(sem|hw|lec)_(\d+([_.]\d+)*)_(.+)\.(\w+)$")
+        # Шаблон регулярного выражения: subj_abbrev_type_num_name.ext (e.g. nm_hw_4_Kidysyuk.ipynb)
+        pattern = re.compile(r"^([a-z]+)_(sem|hw|lec)_(\d+([_.]\d+)*)_(.+)\.(\w+)$")
 
-            g = Github(self.token_var.get())
-            repo = g.get_repo(self.repo_var.get())
-            student = self.student_var.get()
+        g = Github(self.token_var.get(), timeout=180)
+        repo = g.get_repo(self.repo_var.get())
+        student = self.student_var.get()
 
-            logging.info("Starting file synchronization.")
-            for root, _, files in os.walk(self.path_var.get()):
-                for file in files:
-                    full_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(full_path, self.path_var.get())
-                    github_path = rel_path.replace("\\", "/")
+        logging.info("Starting file synchronization.")
+        for root, _, files in os.walk(self.path_var.get()):
+            if self.cancel_flag:
+                self.log_message("[INFO] Синхронизация прервана.")
+                return  # Выходим из метода, если установлен флаг отмены
+            for file in files:
+                if self.cancel_flag:
+                    self.log_message("[INFO] Синхронизация прервана.")
+                    return  # Выходим из метода, если установлен флаг отмены
+                
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, self.path_var.get())
+                github_path = rel_path.replace("\\", "/")
 
-                    # Проверка имени файла
-                    if "data" in rel_path.split(os.sep):
-                        if student not in file:
-                            continue
-                    else:
-                        match = pattern.match(file)
-                        if not match or student not in file:
-                            if self.all_logs.get():
-                                logging.warning(f"{file} does not match the synchronization pattern.")
-                                self.log_message(f"{file} не подходит для синхронизации!")
-                            continue
-
-                    # Проверка, является ли файл бинарным
-                    is_binary = False
-                    if file.endswith(".ipynb"):
-                        is_binary = False
-                    else:
-                        try:
-                            with open(full_path, "r") as f:
-                                chunk = f.read(1024)  # Read a small chunk to check for text encoding
-                                if '\0' in chunk:  # Check for null bytes, a strong indicator of binary
-                                    is_binary = True
-                        except UnicodeDecodeError:
-                            is_binary = True
-
-
-                    # Загрузка/обновление файла
-                    if is_binary:
-                        with open(full_path, "rb") as f:
-                            local_content = f.read()
-                    else:
-                        try:
-                            with open(full_path, "r", encoding="utf-8") as f:
-                                local_content = f.read().encode("utf-8")
-                        except UnicodeDecodeError:
-                            logging.error(f"Error: {file} has unsupported encoding.")
-                            self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
-                            continue
-
-                    if not local_content:
-                        self.log_message(f"[ОШИБКА] {file} is empty")
+                # Проверка имени файла
+                if "data" in rel_path.split(os.sep):
+                    if student not in file:
+                        continue
+                else:
+                    match = pattern.match(file)
+                    if not match or student not in file:
+                        if self.all_logs.get():
+                            logging.warning(f"{file} does not match the synchronization pattern.")
+                            self.log_message(f"{file} не подходит для синхронизации!")
                         continue
 
+                # Проверка, является ли файл бинарным
+                is_binary = False
+                if not file.endswith(".ipynb"):
+                    try:
+                        with open(full_path, "r") as f:
+                            chunk = f.read(1024)  # Read a small chunk to check for text encoding
+                            if '\0' in chunk:  # Check for null bytes, a strong indicator of binary
+                                is_binary = True
+                    except UnicodeDecodeError:
+                        is_binary = True
+
+                # Загрузка/обновление файла
+                if file.endswith(".ipynb"):
+                    with open(full_path, "rb") as f:
+                        local_content = f.read()
+                else:
+                    try:
+                        with open(full_path, "r", encoding="utf-8") as f:
+                            local_content = f.read().encode("utf-8")
+                    except UnicodeDecodeError:
+                        logging.error(f"Error: {file} has unsupported encoding.")
+                        self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
+                        continue
+
+                if not local_content:
+                    self.log_message(f"[ОШИБКА] {file} is empty")
+                    logging.error(f"Error: {file} is empty.")
+                    continue
+
+
+                max_retries = 3
+                retry_delay = 1  # Initial delay in seconds
+
+                for attempt in range(max_retries):
                     try:
                         contents = repo.get_contents(github_path)
                         if contents.type == "file":
-                            try:
-                                github_content = contents.decoded_content
-                            except UnicodeDecodeError:
-                                github_content = b''
-                                self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
-                                logging.error(f"Error: {file} has unsupported encoding.")
-                            if github_content != local_content:
-                                repo.update_file(contents.path, f"Update {file}", local_content, contents.sha)
-                                self.log_message(f"{file} успешно обновлен")
-                                logging.info(f"{file} updated successfully.")
-                                self.uploaded.set(self.uploaded.get() + 1)  # Increment counter
+                            if file.endswith(".ipynb"):
+                                blob = repo.get_git_blob(contents.sha)
+                                remote_content = b64decode(blob.content) if blob.encoding == 'base64' else blob.content
+                                try:
+                                    if remote_content != local_content:
+                                        repo.update_file(contents.path, f"Update {file}", local_content, contents.sha)
+                                        self.log_message(f"{file} успешно обновлен")
+                                        logging.info(f"{file} updated successfully.")
+                                        self.uploaded.set(self.uploaded.get() + 1)
+                                    else:
+                                        self.log_message(f"{file} без изменений")
+                                        logging.info(f"{file} no changes.")
+                                except ReadTimeout as e:
+                                    logging.warning(f"Read timed out during update_file for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
+                                    self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло при обновлении {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
+                                    time.sleep(retry_delay)
+                                    retry_delay *= 2
+                                    if attempt == max_retries - 1:
+                                        self.log_message(f"[ОШИБКА] Не удалось обновить {file} после {max_retries} попыток.")
+                                        logging.error(f"Failed to update {file} after {max_retries} attempts: {e}")
+                                    continue  # Continue to the next attempt
+                                except Exception as e:
+                                    self.log_message(f"[ОШИБКА] {file}: {str(e)}")
+                                    logging.error(f"Error updating file {file}: {e}")
+                                    break
+
                             else:
-                                self.log_message(f"{file} без изменений")
-                                logging.info(f"{file} no changes.")
+                                try:
+                                    github_content = contents.decoded_content
+                                except UnicodeDecodeError:
+                                    github_content = b''
+                                    self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
+                                    logging.error(f"Error: {file} has unsupported encoding.")
+                                    continue
+                                if github_content.encode('utf-8') != local_content:
+                                    repo.update_file(contents.path, f"Update {file}", local_content.decode('utf-8'), contents.sha)
+                                    self.log_message(f"{file} успешно обновлен")
+                                    logging.info(f"{file} updated successfully.")
+                                    self.uploaded.set(self.uploaded.get() + 1)
+                                else:
+                                    self.log_message(f"{file} без изменений")
+                                    logging.info(f"{file} no changes.")
                         else:
                             logging.error(f"Error: {file} is not a file.")
                             self.log_message(f"[ОШИБКА] {file} is not a file")
+                        break  # Exit the retry loop if successful
 
+                    except ReadTimeout as e:
+                        logging.warning(f"Read timed out for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
+                        self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло для {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                        if attempt == max_retries - 1:
+                            self.log_message(f"[ОШИБКА] Не удалось синхронизировать {file} после {max_retries} попыток.")
+                            logging.error(f"Failed to sync {file} after {max_retries} attempts: {e}")
                     except Exception as e:
                         if "Not Found" in str(e):
-                            repo.create_file(github_path, f"Add {file}", local_content)
-                            logging.info(f"{file} uploaded successfully.")
-                            self.log_message(f"{file} успешно загружен")
-                            self.uploaded.set(self.uploaded.get() + 1)  # Increment counter
+                            try:
+                                try:
+                                    repo.create_file(github_path, f"Add {file}", local_content.decode('utf-8') if not file.endswith(".ipynb") else local_content)
+                                    logging.info(f"{file} uploaded successfully.")
+                                    self.log_message(f"{file} успешно загружен")
+                                    self.uploaded.set(self.uploaded.get() + 1)
+                                except ReadTimeout as e:
+                                    logging.warning(f"Read timed out during create_file for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
+                                    self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло при создании {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
+                                    time.sleep(retry_delay)
+                                    retry_delay *= 2
+                                    if attempt == max_retries - 1:
+                                        self.log_message(f"[ОШИБКА] Не удалось создать {file} после {max_retries} попыток.")
+                                        logging.error(f"Failed to create {file} after {max_retries} attempts: {e}")
+                                    continue  # Continue to the next attempt
+                                except Exception as e:
+                                    self.log_message(f"[ОШИБКА] {file}: {str(e)}")
+                                    logging.error(f"Error creating file {file}: {e}")
+                                    break
+
+                            except ReadTimeout as e:
+                                logging.warning(f"Read timed out for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
+                                self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло для {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
+                                time.sleep(retry_delay)
+                                retry_delay *= 2  # Exponential backoff
+                                if attempt == max_retries - 1:
+                                    self.log_message(f"[ОШИБКА] Не удалось синхронизировать {file} после {max_retries} попыток.")
+                                    logging.error(f"Failed to sync {file} after {max_retries} attempts: {e}")
+                            except Exception as e:
+                                self.log_message(f"[ОШИБКА] {file}: {str(e)}")
                         else:
                             self.log_message(f"[ОШИБКА] {file}: {str(e)}")
-
-        except Exception as e:
-            self.log_message(f"[ОШИБКА] {str(e)}")
-            logging.error(f"Error during file synchronization: {e}")
+                        break
 
     def convert_path(self, rel_path):
         # Конвертация пути
@@ -570,8 +678,10 @@ class SyncApp:
 
     def threaded_create_structure(self):
         # Потоковое создание структуры
-        logging.info("Starting threaded create structure.")
+        self.cancel_flag = False # Сбрасываем флаг отмены
+        self.buttons["cancel_btn"].grid() # Показываем кнопку отмены
         self.create_folder_structure()
+        self.buttons["cancel_btn"].grid_remove() # Скрываем кнопку после завершения
         self.toggle_progress(False)
 
     def run_sync(self):
@@ -583,8 +693,34 @@ class SyncApp:
     def threaded_sync(self):
         # Потоковая синхронизация
         logging.info("Starting threaded synchronization.")
-        self.sync_files()
-        self.toggle_progress(False)
+        try:
+            # Проверка интернет-соединения
+            requests.get("https://api.github.com", timeout=5)  # Проверяем доступность GitHub
+        except requests.exceptions.ConnectionError:
+            self.log_message(f"[ОШИБКА] Отсутствует интернет-соединение. Пожалуйста, проверьте ваше подключение к сети.")
+            logging.error("No internet connection.")
+            self.toggle_progress(False)
+            return
+        except requests.exceptions.ReadTimeout:
+            self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло при проверке интернет-соединения. Пожалуйста, проверьте ваше интернет-соединение и попробуйте позже.")
+            logging.error("Read timed out error during internet connection check.")
+            self.toggle_progress(False)
+            return
+        self.cancel_flag = False # Сбрасываем флаг отмены
+        self.buttons["cancel_btn"].grid() # Показываем кнопку отмены
+        try:
+            self.sync_files()
+        except requests.exceptions.ReadTimeout as e:
+            self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло. Пожалуйста, проверьте ваше интернет-соединение и попробуйте позже.")
+            logging.error(f"Read timed out error: {e}")
+        except Exception as e:
+            self.log_message(f"[ОШИБКА] Произошла ошибка при синхронизации: {str(e)}")
+            logging.error(f"Error during synchronization: {e}")
+
+        finally:
+            self.buttons["cancel_btn"].grid_remove() # Скрываем кнопку после завершения
+            self.toggle_progress(False)
+
         
     # Создание повернутой кнопки
     def create_rotated_button(self):
@@ -677,7 +813,6 @@ class SyncApp:
             font=("tahoma", "8", "normal")
         )
         self.tooltip_label.pack(ipadx=1)
-        self.update_rotated_button_colors()
 
     def hide_tooltip(self, event):
         """Hide the tooltip."""
@@ -702,10 +837,7 @@ class SyncApp:
         else:
             text_color = "#000000"  # Black text for light theme
             bg_color = "#ffffff"
-
-        # Update the text color
-        self.update_rotated_button_text_color(text_color)
-
+        self.update_rotated_button_text_color(text_color) # Добавим вызов метода
         # Update the tooltip colors
         if self.tooltip_window:
             self.tooltip_label.config(background=self.get_tooltip_bg_color(), foreground=self.get_tooltip_fg_color())

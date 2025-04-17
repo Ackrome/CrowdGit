@@ -2,3 +2,5 @@ FU/
 saved_settings.*
 __pycache__/
 app.log
+idea*
+.venv
