@@ -380,7 +380,7 @@ class SyncApp:
             self.uploaded.set(0)  # Reset the counter at the start of each sync
 
             # Шаблон регулярного выражения: subj_abbrev_type_num_name.ext (e.g. nm_hw_4_Kidysyuk.ipynb)
-            pattern = re.compile(r"^([a-z]+)_(sem|hw|lec)_(\d+)_(.+)\.(\w+)$")
+            pattern = re.compile(r"/^([a-z]+)_(sem|hw|lec)_(\d+([_.]\d+)*)_(.+)\.(\w+)$/gm")
 
             g = Github(self.token_var.get())
             repo = g.get_repo(self.repo_var.get())
