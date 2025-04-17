@@ -1,3 +1,4 @@
+import logging
 import tkinter as tk
 from tkinter import ttk, filedialog
 import threading
@@ -10,80 +11,17 @@ import traceback
 from AddFilesWindow import AddFilesWindow
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
-
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - [%(levelname)s] - %(message)s",
+    handlers=[
+        logging.FileHandler("app.log"),  # Log to a file
+        logging.StreamHandler()  # Log to console
+    ]
+)
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "saved_settings.json")
-class RotatedButtonToolTip:
-    """
-    Creates a tooltip specifically for the rotated button.
-    """
-
-    def __init__(self, canvas, text="widget info"):
-        self.canvas = canvas
-        self.text = text
-        self.canvas.tag_bind("rotated_button", "<Enter>", self.enter)
-        self.canvas.tag_bind("rotated_button", "<Leave>", self.leave)
-        self.canvas.tag_bind("rotated_button", "<ButtonPress>", self.leave)
-        self.id = None
-        self.tw = None
-
-    def enter(self, event=None):
-        self.schedule()
-
-    def leave(self, event=None):
-        self.unschedule()
-        self.hidetip()
-
-    def schedule(self):
-        self.unschedule()
-        self.id = self.canvas.after(1000, self.showtip)
-
-    def unschedule(self):
-        id_ = self.id
-        self.id = None
-        if id_:
-            self.canvas.after_cancel(id_)
-
-    def showtip(self, event=None):
-        if self.canvas.winfo_exists():
-            # Get the bounding box of the rotated image
-            bbox = self.canvas.bbox("rotated_button")
-            if bbox is not None:
-                x1, y1, x2, y2 = bbox
-                # Calculate the center of the bounding box
-                center_x = (x1 + x2) // 2
-                center_y = (y1 + y2) // 2
-
-                # Get the canvas's position relative to the root window
-                canvas_x = self.canvas.winfo_rootx()
-                canvas_y = self.canvas.winfo_rooty()
-
-                # Calculate the tooltip's position
-                x = canvas_x + center_x
-                y = canvas_y + center_y - 30  # Adjust 30 for desired offset
-
-                # creates a toplevel window
-                self.tw = tk.Toplevel(self.canvas)
-                # Leaves only the label and removes the app window
-                self.tw.wm_overrideredirect(True)
-                self.tw.wm_geometry("+%d+%d" % (x, y))
-                label = tk.Label(
-                    self.tw,
-                    text=self.text,
-                    justify="left",
-                    background="#ffffff",
-                    relief="solid",
-                    borderwidth=1,
-                    font=("tahoma", "8", "normal"),
-                )
-                label.pack(ipadx=1)
-
-    def hidetip(self):
-        tw = self.tw
-        self.tw = None
-        if tw:
-            tw.destroy()
-
 
 class ToolTip:
     """
@@ -108,7 +46,7 @@ class ToolTip:
 
     def schedule(self):
         self.unschedule()
-        self.id = self.widget.after(1000, self.showtip)
+        self.id = self.widget.after(100, self.showtip)
 
     def unschedule(self):
         id_ = self.id
@@ -151,6 +89,7 @@ class SyncApp:
         self.root = root
         self.root.title("GitHub Sync Tool")
 
+        logging.info("Application started.")
         # Смотрим, юзер уже работал с приложением или нет
         settings = self.load_settings()
         GITHUB_TOKEN = settings.get("token", "")
@@ -194,6 +133,7 @@ class SyncApp:
                 self.folder_structure,
             )
         
+        logging.info("Folder structure loaded.")
         try:
             if len(self.folder_structure.items()):
                 self.buttons["add_files_btn"].grid()
@@ -208,6 +148,7 @@ class SyncApp:
         
     
     def create_buttons(self):
+        logging.info("Creating buttons.")
         # Создание кнопок
         self.buttons["add_files_btn"] = ttk.Button(self.root, text="Добавить файлы", command=self.open_add_files_window)
         self.buttons["create_btn"] = ttk.Button(self.root, text="Создать структуру", command=self.run_create_structure)
@@ -272,6 +213,7 @@ class SyncApp:
 
     def check_token(self, *args):
         """Check if the token is valid and show/hide the button accordingly."""
+        logging.info(f"Checking token validity. Token length: {len(self.token_var.get())}")
         if len(self.token_var.get()) == 93:
             self.set_buttons_visibility(True)
             self.root.update()  # Force the window to update its layout
@@ -285,6 +227,7 @@ class SyncApp:
 
     def create_folder_structure(self):
         """Create local folder structure from GitHub repo"""
+        logging.info("Starting folder structure creation.")
         self.toggle_progress(True) # Включаем прогрессбар
         self.buttons['add_files_btn'].grid_remove()
         if not self.token_var.get() or not self.repo_var.get():
@@ -312,17 +255,21 @@ class SyncApp:
             self.folder_structure = get_dirs()
             self.save_settings(self.token_var.get(), self.student_var.get(), self.folder_structure)
             self.log_message("[OK] Структура папок создана")
+            logging.info("Folder structure created successfully.")
 
         except Exception as e:
             self.log_message(f"[ОШИБКА] {type(e).__name__} : {str(e)}")
+            logging.error(f"Error creating folder structure: {e}")
 
-        self.add_files_btn.grid()
+        logging.info("Finished folder structure creation.")
+        self.buttons['add_files_btn'].grid()
         self.toggle_progress(False)
 
     @staticmethod
     def load_settings():
         # Загрузка настроек из файла
         if os.path.exists(SETTINGS_FILE):
+            logging.info("Loading settings from file.")
             with open(SETTINGS_FILE, "r") as f:
                 return json.load(f)
         return {}
@@ -330,12 +277,14 @@ class SyncApp:
     @staticmethod
     # Сохранение настроек в файл
     def save_settings(token, student, structure={}):
+        logging.info("Saving settings to file.")
         with open(SETTINGS_FILE, "w") as f:
             json.dump({"token": token, "student": student, "structure": structure}, f)
 
     def open_add_files_window(self):
         """Open window for adding files to structure"""
         print("open_add_files_window: Starting")
+        logging.info("Opening add files window.")
         if hasattr(self, 'add_window') and self.add_window.winfo_exists():
             self.add_window.lift()
             print("open_add_files_window: Window already exists, lifting it")
@@ -345,25 +294,26 @@ class SyncApp:
 
     def remove_buttons(self):
         # Удаление кнопок
-        self.butts = [
-            self.add_files_btn,
-            self.create_btn,
-            self.sync_btn,
-            self.progress,
-            self.all_logs_entry,
-            self.uploaded_info,
-            self.uploaded_show,
-            self.log_scroll,
-            self.log_text,
-            self.example_label,
-            self.save_btn,
-            self.create_info
-
-        ]
-        for i in self.butts:
-            i.grid_remove()
-
+        for key in self.buttons.keys():
+            try:
+                self.buttons[key].grid_remove()
+            except:
+                pass
+        try:
+            self.progress.grid_remove()
+            self.log_text.grid_remove()
+        except:
+            pass
+        
+        
+        
+        
+        
+        
+        
+        
     def create_widgets(self):
+        logging.info("Creating widgets.")
         # Создание виджетов
         ttk.Label(self.root, text="GitHub Token:").grid(row=0, column=0, sticky="w")
         self.token_entry = ttk.Entry(self.root, textvariable=self.token_var, width=40, show="*")
@@ -385,6 +335,7 @@ class SyncApp:
         self.progress = ttk.Progressbar(self.root, mode="indeterminate")
 
     def grid_layout(self):
+        logging.info("Setting up grid layout.")
         # Размещение виджетов
         self.token_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=2, sticky="we")
         self.path_entry.grid(row=1, column=1, padx=5, pady=2, sticky="we")
@@ -414,11 +365,14 @@ class SyncApp:
         token = self.token_var.get()
         student = self.student_var.get()
         if token.strip() and student.strip():
-            self.save_settings(token, student)
+            logging.info("Saving profile.")
+            self.save_settings(token, student, self.folder_structure)
             self.log_message("[OK] Профиль сохранён") # Вывод сообщения в лог
+            logging.info("Profile saved successfully.")
         else:
             self.log_message("[ОШИБКА] Поля не должны быть пустыми")
-
+            logging.warning("Failed to save profile: Fields are empty.")
+            
     def select_path(self):
         # Выбор пути
         path = filedialog.askdirectory()
@@ -431,15 +385,19 @@ class SyncApp:
         self.log_text.insert('end', msg + '\n')
         self.log_text.see('end')
         self.log_text.configure(state='disabled')
+        logging.info(msg)
 
     def toggle_progress(self, start=True):
+        logging.info(f"Toggling progress bar: {'Start' if start else 'Stop'}")
         # Включение/выключение прогрессбара
         if start:
             self.progress.start()
             self.progress_running = True
+            logging.info("Progress bar started.")
         else:
             self.progress.stop()
             self.progress_running = False
+            logging.info("Progress bar stopped.")
 
     def sync_files(self):
         """Synchronize files with GitHub repo"""
@@ -453,6 +411,7 @@ class SyncApp:
             repo = g.get_repo(self.repo_var.get())
             student = self.student_var.get()
 
+            logging.info("Starting file synchronization.")
             for root, _, files in os.walk(self.path_var.get()):
                 for file in files:
                     full_path = os.path.join(root, file)
@@ -467,6 +426,7 @@ class SyncApp:
                         match = pattern.match(file)
                         if not match or student not in file:
                             if self.all_logs.get():
+                                logging.warning(f"{file} does not match the synchronization pattern.")
                                 self.log_message(f"{file} не подходит для синхронизации!")
                             continue
 
@@ -493,6 +453,7 @@ class SyncApp:
                             with open(full_path, "r", encoding="utf-8") as f:
                                 local_content = f.read().encode("utf-8")
                         except UnicodeDecodeError:
+                            logging.error(f"Error: {file} has unsupported encoding.")
                             self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
                             continue
 
@@ -508,18 +469,23 @@ class SyncApp:
                             except UnicodeDecodeError:
                                 github_content = b''
                                 self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
+                                logging.error(f"Error: {file} has unsupported encoding.")
                             if github_content != local_content:
                                 repo.update_file(contents.path, f"Update {file}", local_content, contents.sha)
                                 self.log_message(f"{file} успешно обновлен")
+                                logging.info(f"{file} updated successfully.")
                                 self.uploaded.set(self.uploaded.get() + 1)  # Increment counter
                             else:
                                 self.log_message(f"{file} без изменений")
+                                logging.info(f"{file} no changes.")
                         else:
+                            logging.error(f"Error: {file} is not a file.")
                             self.log_message(f"[ОШИБКА] {file} is not a file")
 
                     except Exception as e:
                         if "Not Found" in str(e):
                             repo.create_file(github_path, f"Add {file}", local_content)
+                            logging.info(f"{file} uploaded successfully.")
                             self.log_message(f"{file} успешно загружен")
                             self.uploaded.set(self.uploaded.get() + 1)  # Increment counter
                         else:
@@ -527,6 +493,7 @@ class SyncApp:
 
         except Exception as e:
             self.log_message(f"[ОШИБКА] {str(e)}")
+            logging.error(f"Error during file synchronization: {e}")
 
     def convert_path(self, rel_path):
         # Конвертация пути
@@ -540,23 +507,28 @@ class SyncApp:
 
     def run_create_structure(self):
         # Запуск создания структуры
+        logging.info("Starting create structure process.")
         self.toggle_progress(True)
         threading.Thread(target=self.threaded_create_structure, daemon=True).start()
 
     def threaded_create_structure(self):
         # Потоковое создание структуры
+        logging.info("Starting threaded create structure.")
         self.create_folder_structure()
         self.toggle_progress(False)
 
     def run_sync(self):
         # Запуск синхронизации
+        logging.info("Starting synchronization process.")
         self.toggle_progress(True)
         threading.Thread(target=self.threaded_sync, daemon=True).start()
 
     def threaded_sync(self):
         # Потоковая синхронизация
+        logging.info("Starting threaded synchronization.")
         self.sync_files()
         self.toggle_progress(False)
+        
     # Создание повернутой кнопки
     def create_rotated_button(self):
         # Create a temporary image with text
@@ -564,6 +536,7 @@ class SyncApp:
         font_size = 17
         try:
             font = ImageFont.truetype("arial.ttf", font_size)  # Replace with your desired font
+            logging.info("Loaded font arial.ttf.")
         except IOError:
             print("Error: arial.ttf not found. Using default font.")
             font = ImageFont.load_default()
@@ -587,31 +560,17 @@ class SyncApp:
         self.rotated_photo = ImageTk.PhotoImage(rotated_image)
 
         # Create a Canvas to display the rotated image
-        self.rotated_canvas = tk.Canvas(self.root, width=rotated_image.width, height=rotated_image.height, bd=0, highlightthickness=0, cursor="hand2")
+        self.rotated_canvas = tk.Canvas(self.root, width=rotated_image.width, height=rotated_image.height, bd=0, highlightthickness=0, cursor="hand2", bg="SystemButtonFace")
         self.rotated_canvas.grid(rowspan=5, column=3, row=0, pady=5, padx=5)
 
         # Add the image to the Canvas with a tag
-        self.rotated_image_id = self.rotated_canvas.create_image(0, 0, anchor="nw", image=self.rotated_photo, tags="rotated_button")
+        self.rotated_image_id = self.rotated_canvas.create_image(0, 0, anchor="nw", image=self.rotated_photo)
+
         # Add a border to the Canvas
         self.rotated_canvas.config(bd=2, relief="groove")
 
         # Bind the click event to the image tag
-        self.rotated_canvas.tag_bind("rotated_button", "<Button-1>", self.save_profile)
-        
-        RotatedButtonToolTip(self.rotated_canvas, "Сохраняет текущие настройки профиля (токен, имя студента).")
-
-
-        # Remove old button
-        self.buttons["save_btn"].grid_remove()
-        self.buttons["save_btn"].destroy()
-        del self.buttons["save_btn"]
-        
-        
-        # Bind the click event to the image tag
-        self.rotated_canvas.tag_bind("rotated_button", "<Button-1>", self.save_profile)
-        # Add hover effect
-        self.rotated_canvas.tag_bind("rotated_button", "<Enter>", self.on_enter)
-        self.rotated_canvas.tag_bind("rotated_button", "<Leave>", self.on_leave) # Добавление эффекта наведения
+        self.rotated_canvas.tag_bind(self.rotated_image_id, "<Button-1>", self.save_profile)
 
         # Remove old button
         if "save_btn" in self.buttons: # Удаление старой кнопки
@@ -619,14 +578,61 @@ class SyncApp:
             self.buttons["save_btn"].destroy()
             del self.buttons["save_btn"]
 
+        # Add hover effect
+        self.rotated_canvas.tag_bind(self.rotated_image_id, "<Enter>", self.on_enter)
+        logging.info("Added hover effect to rotated button.")
+        self.rotated_canvas.tag_bind(self.rotated_image_id, "<Leave>", self.on_leave) # Добавление эффекта наведения
+
+        # Tooltip variables
+        self.tooltip_window = None
+        self.tooltip_text = "Сохраняет текущие настройки профиля (токен, имя студента)."
+
+        # Bind the tooltip events directly to the canvas
+        self.rotated_canvas.tag_bind(self.rotated_image_id, "<Enter>", self.show_tooltip)
+        self.rotated_canvas.tag_bind(self.rotated_image_id, "<Leave>", self.hide_tooltip)
+
+    def show_tooltip(self, event):
+        """Show the tooltip."""
+        if self.tooltip_window is not None:
+            return  # Tooltip already exists
+
+        # Get the mouse position relative to the root window
+        x, y = self.rotated_canvas.winfo_pointerxy()
+
+        # Create the tooltip window
+        self.tooltip_window = tk.Toplevel(self.root)
+        self.tooltip_window.wm_overrideredirect(True)  # Remove window decorations
+        self.tooltip_window.wm_geometry(f"+{x + 10}+{y + 10}")  # Position near the mouse
+
+        # Create the tooltip label
+        label = tk.Label(
+            self.tooltip_window,
+            text=self.tooltip_text,
+            justify="left",
+            background="#ffffff",
+            relief="solid",
+            borderwidth=1,
+            font=("tahoma", "8", "normal"),
+        )
+        label.pack(ipadx=1)
+
+    def hide_tooltip(self, event):
+        """Hide the tooltip."""
+        if self.tooltip_window is not None:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
+
     def on_enter(self, event):
+        logging.info("Mouse entered rotated button.")
         self.rotated_canvas.config(bg="#e0e0e0")  # Change background color on hover
 
     def on_leave(self, event): # Восстановление цвета
+        logging.info("Mouse left rotated button.")
         self.rotated_canvas.config(bg="SystemButtonFace")  # Restore default background color
 
 
 if __name__ == "__main__":
+    logging.info("Starting application.")
     root = tk.Tk() # Создание окна
     app = SyncApp(root)
     root.mainloop()
