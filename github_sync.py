@@ -11,6 +11,8 @@ import traceback
 from AddFilesWindow import AddFilesWindow
 from ToolTip import ToolTip
 from PIL import Image, ImageDraw, ImageFont, ImageTk
+from get_theme import get_system_theme
+import sv_ttk
 
 # Configure logging
 logging.basicConfig(
@@ -27,8 +29,15 @@ SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "saved_settings.json")
 class SyncApp:
     def __init__(self, root):  # Инициализация приложения
         self.root = root
-        self.root.title("GitHub Sync Tool")
+        self.root.title("CrowdGit")
 
+        # Set the icon
+        try:
+            self.root.iconphoto(True, tk.PhotoImage(file="skull-icon-5253.png"))
+        except tk.TclError:
+            logging.error("Icon file 'skull-icon-5253.png' not found.")
+        
+        
         logging.info("Application started.")
         # Смотрим, юзер уже работал с приложением или нет
         settings = self.load_settings()
@@ -84,9 +93,12 @@ class SyncApp:
 
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(7, weight=1)
+        
+        self.load_theme()
+
 
         
-    
+    # Блок внешнего вида
     def create_buttons(self):
         logging.info("Creating buttons.")
         # Создание кнопок
@@ -103,7 +115,9 @@ class SyncApp:
         self.buttons["example_label"] = ttk.Label(self.root, text="Пример верного path: 'FU\\course_2\\semester_4\\nm_Численные Методы\\hw\\nm_hw_4_Kidysyuk.ipynb'")
         self.buttons["progress"] = self.progress
         self.buttons["add_files_btn"].grid(row=10, column=0, padx=5, pady=5)
-        
+        self.buttons["about_btn"] = ttk.Button(self.root, text="О программе", command=self.show_about_menu)
+        self.buttons["about_btn"].grid(row=10, column=3, padx=5, pady=2)
+
         
         
         # Add tooltips
@@ -171,10 +185,87 @@ class SyncApp:
         
         ToolTip(self.progress, "Индикатор выполнения текущей операции.")
 
+        ToolTip(
+            self.buttons["about_btn"],
+            "Открывает меню с информацией о программе и настройками внешнего вида.",
+        )
 
+    def load_theme(self):
+        """Loads the system theme and applies it to the application."""
+        system_theme = get_system_theme()
+        self.set_theme(system_theme)
 
+    def show_about_menu(self):
+        """Displays the 'About' menu with options for 'Creators' and 'Appearance'."""
+        about_menu = tk.Menu(self.root, tearoff=0)
+        about_menu.add_command(label="Создатели", command=self.show_creators)
+        about_menu.add_command(label="Внешний вид", command=self.show_appearance_options)
 
+        # Calculate the position for the menu
+        x = self.buttons["about_btn"].winfo_rootx()
+        y = self.buttons["about_btn"].winfo_rooty() + self.buttons["about_btn"].winfo_height()
 
+        about_menu.tk_popup(x, y)
+
+    def show_creators(self):
+        """Displays information about the creators of the application."""
+        creators_text = (
+            "Программисты kvdep и ackrome столкнулись с непростой задачей: создать программу, "
+            "которая должна была стать инновационной, но оставаться простой в использовании. "
+            "Ночи за кодом, бесконечные дебаты о структуре и неожиданные ошибки стали их рутиной. "
+            "Каждая строчка кода требовала проверки, а баланс между креативностью и функциональностью "
+            "казался недостижимым. «Это как собрать пазл вслепую», — шутил ackrome, пока kvdep искал "
+            "решение очередного бага. Несмотря на трудности, их упорство привело к результату — "
+            "программа ожила, став символом их совместных усилий и страсти к программированию."
+        )
+        creators_window = tk.Toplevel(self.root)
+        creators_window.title("Создатели")
+        label = ttk.Label(creators_window, text=creators_text, wraplength=400, justify="left", padding=10)
+        label.pack()
+        creators_window.transient(self.root)  # Make it a child of the main window
+        creators_window.grab_set()  # Make it modal
+
+    def show_appearance_options(self):
+        """Displays options for changing the application's appearance."""
+        appearance_window = tk.Toplevel(self.root)
+        appearance_window.title("Внешний вид")
+
+        # Add theme options here (e.g., light, dark)
+        ttk.Label(appearance_window, text="Выберите тему:").pack(pady=5)
+
+        # Example: Add a button to switch to a dark theme
+        dark_theme_btn = ttk.Button(appearance_window, text="Темная тема", command=lambda: self.set_theme("dark"))
+        dark_theme_btn.pack(pady=5)
+
+        # Example: Add a button to switch to a light theme
+        light_theme_btn = ttk.Button(appearance_window, text="Светлая тема", command=lambda: self.set_theme("light"))
+        light_theme_btn.pack(pady=5)
+    
+    def set_theme(self, theme):
+        """Sets the application's theme (light or dark)."""
+        if theme in ["dark", "light", ""]:
+            sv_ttk.set_theme(theme)
+            self.update_tooltips_theme()
+        else:
+            print("Unknown theme")
+            
+    def update_tooltips_theme(self):
+        """Update the theme of all tooltips."""
+        for widget in self.root.winfo_children():
+            self.update_tooltip_theme_recursive(widget)
+
+    def update_tooltip_theme_recursive(self, widget):
+        """Recursively update the theme of tooltips in a widget and its children."""
+        if isinstance(widget, tk.Canvas):
+            for item in widget.find_all():
+                tags = widget.gettags(item)
+                for tag in tags:
+                    if tag.startswith("tooltip_"):
+                        tooltip_instance = widget.itemcget(item, "tooltip_instance")
+                        if tooltip_instance:
+                            tooltip_instance.update_theme()
+        for child in widget.winfo_children():
+            self.update_tooltip_theme_recursive(child)
 
     def set_buttons_visibility(self, visible):
         # Set button visibility
@@ -184,8 +275,55 @@ class SyncApp:
             else:
                 button.grid_remove()
 
-    
+    def create_widgets(self):
+        logging.info("Creating widgets.")
+        # Создание виджетов
+        ttk.Label(self.root, text="GitHub Token:").grid(row=0, column=0, sticky="w")
+        self.token_entry = ttk.Entry(self.root, textvariable=self.token_var, width=40, show="*")
 
+        ttk.Label(self.root, text="Локальный путь:").grid(row=1, column=0, sticky="w")
+        self.path_entry = ttk.Entry(self.root, textvariable=self.path_var, width=35)
+        self.browse_btn = ttk.Button(self.root, text="Обзор", command=self.select_path)
+
+        ttk.Label(self.root, text="Фамилия студента:").grid(row=2, column=0, sticky="w")
+        self.student_entry = ttk.Entry(self.root, textvariable=self.student_var, width=40)
+
+        ttk.Label(self.root, text="Репозиторий:").grid(row=3, column=0, sticky="w")
+        self.repo_entry = ttk.Entry(self.root, textvariable=self.repo_var, width=40)
+
+        ttk.Label(self.root, text="Базовая папка:").grid(row=4, column=0, sticky="w")
+        self.base_entry = ttk.Entry(self.root, textvariable=self.base, width=40)
+
+        self.log_text = tk.Text(height=10, state='disabled')
+        self.progress = ttk.Progressbar(self.root, mode="indeterminate")
+
+    def grid_layout(self):
+        logging.info("Setting up grid layout.")
+        # Размещение виджетов
+        self.token_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=2, sticky="we")
+        self.path_entry.grid(row=1, column=1, padx=5, pady=2, sticky="we")
+        self.browse_btn.grid(row=1, column=2, padx=5, pady=2)
+        self.student_entry.grid(row=2, column=1, columnspan=2, padx=5, pady=2, sticky="we")
+        self.repo_entry.grid(row=3, column=1, columnspan=2, padx=5, pady=2, sticky="we")
+        self.base_entry.grid(row=4, column=1, columnspan=2, padx=5, pady=2, sticky="we")
+
+        self.buttons["create_info"].grid(row=5, column=1, columnspan=2, padx=5, pady=2, sticky="we")
+        self.buttons["create_btn"].grid(row=5, column=0, padx=5, pady=5)
+
+        self.buttons["sync_btn"].grid(row=6, column=0, padx=5, pady=5)
+        self.log_text.grid(row=7, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
+        self.buttons["log_scroll"].grid(row=7, column=3, sticky="ns")
+
+        self.buttons["uploaded_info"].grid(row=6, column=2)
+        self.buttons["uploaded_show"].grid(row=6, column=3)
+
+        self.buttons["progress"].grid(row=8, column=0, columnspan=3, sticky="we", padx=5, pady=5)
+        self.buttons["example_label"].grid(row=9, column=0, columnspan=3, padx=5, pady=5, sticky="w")
+        self.buttons["save_btn"].grid(row=3, column=3, padx=5, pady=2)
+        self.buttons["all_logs_entry"].grid(row=10, column=1, padx=5, pady=2)
+        self.buttons["add_files_btn"].grid(row=10, column=0, padx=5, pady=5)
+
+    # Глупая проверка валидности токена
     def check_token(self, *args):
         """Check if the token is valid and show/hide the button accordingly."""
         logging.info(f"Checking token validity. Token length: {len(self.token_var.get())}")
@@ -198,8 +336,8 @@ class SyncApp:
             self.root.update()  # Force the window to update its layout
             self.root.geometry("")  # Resize the window to fit its contents
 
-
-
+    # Функциональная часть
+    
     def create_folder_structure(self):
         """Create local folder structure from GitHub repo"""
         logging.info("Starting folder structure creation.")
@@ -250,7 +388,6 @@ class SyncApp:
         return {}
 
     @staticmethod
-    # Сохранение настроек в файл
     def save_settings(token, student, structure={}):
         logging.info("Saving settings to file.")
         with open(SETTINGS_FILE, "w") as f:
@@ -278,62 +415,7 @@ class SyncApp:
             self.progress.grid_remove()
             self.log_text.grid_remove()
         except:
-            pass
-        
-        
-        
-        
-        
-        
-        
-        
-    def create_widgets(self):
-        logging.info("Creating widgets.")
-        # Создание виджетов
-        ttk.Label(self.root, text="GitHub Token:").grid(row=0, column=0, sticky="w")
-        self.token_entry = ttk.Entry(self.root, textvariable=self.token_var, width=40, show="*")
-
-        ttk.Label(self.root, text="Локальный путь:").grid(row=1, column=0, sticky="w")
-        self.path_entry = ttk.Entry(self.root, textvariable=self.path_var, width=35)
-        self.browse_btn = ttk.Button(self.root, text="Обзор", command=self.select_path)
-
-        ttk.Label(self.root, text="Фамилия студента:").grid(row=2, column=0, sticky="w")
-        self.student_entry = ttk.Entry(self.root, textvariable=self.student_var, width=40)
-
-        ttk.Label(self.root, text="Репозиторий:").grid(row=3, column=0, sticky="w")
-        self.repo_entry = ttk.Entry(self.root, textvariable=self.repo_var, width=40)
-
-        ttk.Label(self.root, text="Базовая папка:").grid(row=4, column=0, sticky="w")
-        self.base_entry = ttk.Entry(self.root, textvariable=self.base, width=40)
-
-        self.log_text = tk.Text(height=10, state='disabled')
-        self.progress = ttk.Progressbar(self.root, mode="indeterminate")
-
-    def grid_layout(self):
-        logging.info("Setting up grid layout.")
-        # Размещение виджетов
-        self.token_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=2, sticky="we")
-        self.path_entry.grid(row=1, column=1, padx=5, pady=2, sticky="we")
-        self.browse_btn.grid(row=1, column=2, padx=5, pady=2)
-        self.student_entry.grid(row=2, column=1, columnspan=2, padx=5, pady=2, sticky="we")
-        self.repo_entry.grid(row=3, column=1, columnspan=2, padx=5, pady=2, sticky="we")
-        self.base_entry.grid(row=4, column=1, columnspan=2, padx=5, pady=2, sticky="we")
-
-        self.buttons["create_info"].grid(row=5, column=1, columnspan=2, padx=5, pady=2, sticky="we")
-        self.buttons["create_btn"].grid(row=5, column=0, padx=5, pady=5)
-
-        self.buttons["sync_btn"].grid(row=6, column=0, padx=5, pady=5)
-        self.log_text.grid(row=7, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
-        self.buttons["log_scroll"].grid(row=7, column=3, sticky="ns")
-
-        self.buttons["uploaded_info"].grid(row=6, column=2)
-        self.buttons["uploaded_show"].grid(row=6, column=3)
-
-        self.buttons["progress"].grid(row=8, column=0, columnspan=3, sticky="we", padx=5, pady=5)
-        self.buttons["example_label"].grid(row=9, column=0, columnspan=3, padx=5, pady=5, sticky="w")
-        self.buttons["save_btn"].grid(row=3, column=3, padx=5, pady=2)
-        self.buttons["all_logs_entry"].grid(row=10, column=1, padx=5, pady=2)
-        self.buttons["add_files_btn"].grid(row=10, column=0, padx=5, pady=5)
+            pass           
 
     def save_profile(self, *args):
         # Сохранение профиля
@@ -380,7 +462,7 @@ class SyncApp:
             self.uploaded.set(0)  # Reset the counter at the start of each sync
 
             # Шаблон регулярного выражения: subj_abbrev_type_num_name.ext (e.g. nm_hw_4_Kidysyuk.ipynb)
-            pattern = re.compile(r"/^([a-z]+)_(sem|hw|lec)_(\d+([_.]\d+)*)_(.+)\.(\w+)$/gm")
+            pattern = re.compile(r"^([a-z]+)_(sem|hw|lec)_(\d+([_.]\d+)*)_(.+)\.(\w+)$")
 
             g = Github(self.token_var.get())
             repo = g.get_repo(self.repo_var.get())
@@ -557,11 +639,15 @@ class SyncApp:
         self.rotated_canvas.tag_bind(self.rotated_image_id, "<Enter>", self.on_enter)
         logging.info("Added hover effect to rotated button.")
         self.rotated_canvas.tag_bind(self.rotated_image_id, "<Leave>", self.on_leave) # Добавление эффекта наведения
-
+    
+        
+        
         # Tooltip variables
         self.tooltip_window = None
         self.tooltip_text = "Сохраняет текущие настройки профиля (токен, имя студента)."
 
+
+        
         # Bind the tooltip events directly to the canvas
         self.rotated_canvas.tag_bind(self.rotated_image_id, "<Enter>", self.show_tooltip)
         self.rotated_canvas.tag_bind(self.rotated_image_id, "<Leave>", self.hide_tooltip)
@@ -580,16 +666,18 @@ class SyncApp:
         self.tooltip_window.wm_geometry(f"+{x + 10}+{y + 10}")  # Position near the mouse
 
         # Create the tooltip label
-        label = tk.Label(
+        self.tooltip_label = tk.Label(
             self.tooltip_window,
             text=self.tooltip_text,
             justify="left",
-            background="#ffffff",
+            background=self.get_tooltip_bg_color(),
+            foreground=self.get_tooltip_fg_color(),
             relief="solid",
             borderwidth=1,
-            font=("tahoma", "8", "normal"),
+            font=("tahoma", "8", "normal")
         )
-        label.pack(ipadx=1)
+        self.tooltip_label.pack(ipadx=1)
+        self.update_rotated_button_colors()
 
     def hide_tooltip(self, event):
         """Hide the tooltip."""
@@ -604,6 +692,57 @@ class SyncApp:
     def on_leave(self, event): # Восстановление цвета
         logging.info("Mouse left rotated button.")
         self.rotated_canvas.config(bg="SystemButtonFace")  # Restore default background color
+    
+    def update_rotated_button_colors(self):
+        """Updates the colors of the rotated button based on the current theme."""
+        theme = sv_ttk.get_theme()
+        if theme == "dark":
+            text_color = "#ffffff"  # White text for dark theme
+            bg_color = "#333333"
+        else:
+            text_color = "#000000"  # Black text for light theme
+            bg_color = "#ffffff"
+
+        # Update the text color
+        self.update_rotated_button_text_color(text_color)
+
+        # Update the tooltip colors
+        if self.tooltip_window:
+            self.tooltip_label.config(background=self.get_tooltip_bg_color(), foreground=self.get_tooltip_fg_color())
+
+    def update_rotated_button_text_color(self, color):
+        """Updates the text color of the rotated button."""
+        # Create a temporary image with text
+        text = "Сохранить профиль"
+        font_size = 17
+        try:
+            font = ImageFont.truetype("arial.ttf", font_size)  # Replace with your desired font
+        except IOError:
+            font = ImageFont.load_default()
+
+        # Create a dummy image to use for measuring text size
+        dummy_image = Image.new("RGBA", (1, 1), (255, 255, 255, 0))
+        draw = ImageDraw.Draw(dummy_image)
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+        image = Image.new("RGBA", (text_width + 20, text_height + 20), (255, 255, 255, 0))
+        draw = ImageDraw.Draw(image)
+        draw.text((10, 10), text, font=font, fill=color)
+        rotated_image = image.rotate(90, expand=True)
+        self.rotated_photo = ImageTk.PhotoImage(rotated_image)
+        self.rotated_canvas.itemconfig(self.rotated_image_id, image=self.rotated_photo)
+
+    def get_tooltip_bg_color(self):
+        """Returns the appropriate background color for the tooltip based on the current theme."""
+        theme = sv_ttk.get_theme()
+        return "#333333" if theme == "dark" else "#ffffff"
+
+    def get_tooltip_fg_color(self):
+        """Returns the appropriate foreground color for the tooltip based on the current theme."""
+        theme = sv_ttk.get_theme()
+        return "#ffffff" if theme == "dark" else "#000000"
 
 
 if __name__ == "__main__":

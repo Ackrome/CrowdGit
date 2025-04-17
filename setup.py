@@ -14,6 +14,8 @@ reqs = [
     "certifi",   # используется для проверки SSL сертификатов в requests
     "idna",      # используется для работы с доменами и адресами в requests
     "charset-normalizer",  # альтернатива chardet в новых версиях requests
+    "sv-ttk",
+    "Pillow"
 ]
 
 

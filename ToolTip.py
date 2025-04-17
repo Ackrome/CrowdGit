@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-
+import sv_ttk
 
 
 class ToolTip:
@@ -16,6 +16,11 @@ class ToolTip:
         self.widget.bind("<ButtonPress>", self.leave)
         self.id = None
         self.tw = None
+        self.theme_colors = {
+            "light": {"bg": "#ffffff", "fg": "#000000"},  # White background, black text
+            "dark": {"bg": "#333333", "fg": "#ffffff"},  # Dark gray background, white text
+        }
+        self.current_theme = "light"  # Default theme
 
     def enter(self, event=None):
         self.schedule()
@@ -53,23 +58,30 @@ class ToolTip:
             self.tw = tk.Toplevel(self.widget)
             # Leaves only the label and removes the app window
             self.tw.wm_overrideredirect(True)
+            self.update_theme()
             self.tw.wm_geometry("+%d+%d" % (x, y))
+            self.update_theme()
             label = tk.Label(
                 self.tw,
                 text=self.text,
                 justify="left",
-                background="#ffffff",
+                background=self.theme_colors[self.current_theme]["bg"],
+                foreground=self.theme_colors[self.current_theme]["fg"],
                 relief="solid",
                 borderwidth=1,
                 font=("tahoma", "8", "normal"),
             )
             label.pack(ipadx=1)
 
-
-
-
     def hidetip(self):
         tw = self.tw
         self.tw = None
         if tw:
             tw.destroy()
+
+    def update_theme(self):
+        """Update the tooltip's colors based on the current theme."""
+        if sv_ttk.get_theme() == "dark":
+            self.current_theme = "dark"
+        else:
+            self.current_theme = "light"
