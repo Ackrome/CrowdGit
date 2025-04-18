@@ -16,7 +16,9 @@ reqs = [
     "charset-normalizer",  # альтернатива chardet в новых версиях requests
     "sv-ttk",
     "Pillow",
-    "tkinterdnd2"
+    "tkinterdnd2",
+    "aiohttp",
+    "urllib3"
 ]
 
 

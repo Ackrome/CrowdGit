@@ -5,7 +5,7 @@ import threading
 import os
 import re
 from base64 import b64decode
-from github import Github
+from github import Github, InputGitBlob 
 import json
 import traceback
 from AddFilesWindow import AddFilesWindow
@@ -17,6 +17,15 @@ import time
 import requests
 from requests.exceptions import ReadTimeout
 from tkinterdnd2 import DND_FILES, TkinterDnD
+import asyncio
+import aiohttp
+from aiohttp import ClientSession
+from github import Github, GithubException
+from http.client import IncompleteRead
+import urllib3
+import hashlib
+import sqlite3
+import atexit
 
 
 # Configure logging
@@ -30,12 +39,18 @@ logging.basicConfig(
 )
 
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "saved_settings.json")
+# Define the application data directory
+APP_DATA_DIR = os.path.join(os.path.expanduser("~"), ".crowdgit")
+os.makedirs(APP_DATA_DIR, exist_ok=True)
+
+# Define the database file path
+DATABASE_FILE = os.path.join(APP_DATA_DIR, "file_metadata.db")
 
 class SyncApp:
     def __init__(self, root):  # Инициализация приложения
         self.root = root
         self.root.title("CrowdGit")
-
+        
         # Set the icon
         try:
             self.root.iconphoto(True, tk.PhotoImage(file="skull-icon-5253.png"))
@@ -105,6 +120,13 @@ class SyncApp:
         self.root.grid_rowconfigure(7, weight=1)
         
         self.cancel_flag = False
+        
+        self.file_hash_cache = {}  # Initialize the file hash cache
+        self.blob_cache = {}  # Initialize the cache
+        self.session = None
+        self.create_database()
+        atexit.register(self.close_database)
+        self.processed = tk.IntVar(value=0) # Add processed counter
         
         
 
@@ -273,7 +295,7 @@ class SyncApp:
             self.update_rotated_button_colors()
             self.save_profile() # Сохраним тему
         else:
-            print("Unknown theme")
+            logging.info("Unknown theme")
 
             
     def update_tooltips_theme(self):
@@ -426,6 +448,27 @@ class SyncApp:
         with open(SETTINGS_FILE, "w") as f:
             json.dump({"token": token, "student": student, "structure": structure, "theme": theme}, f) # Добавим theme в словарь
 
+    @staticmethod
+    def read_file_in_chunks(file_path, chunk_size=1024 * 1024):  # 1MB chunks
+        """Reads a file in chunks."""
+        logging.info(f'Chunking file {file_path}')
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                while True:
+                    chunk = file.read(chunk_size)
+                    if not chunk:
+                        logging.info(f'Finished chunking file {file_path}')
+                        break
+                    yield chunk
+        except UnicodeDecodeError:
+            with open(file_path, 'rb') as file:
+                while True:
+                    chunk = file.read(chunk_size)
+                    if not chunk:
+                        logging.info(f'Finished chunking file {file_path}')
+                        break
+                    yield chunk
+
     def cancel_operation(self):
         self.cancel_flag = True
         self.log_message("[INFO] Операция отменена пользователем.")
@@ -433,27 +476,14 @@ class SyncApp:
 
     def open_add_files_window(self):
         """Open window for adding files to structure"""
-        print("open_add_files_window: Starting")
+        logging.info("open_add_files_window: Starting")
         logging.info("Opening add files window.")
         if hasattr(self, 'add_window') and self.add_window.winfo_exists():
             self.add_window.lift()
-            print("open_add_files_window: Window already exists, lifting it")
+            logging.info("open_add_files_window: Window already exists, lifting it")
         else:
             self.add_window = AddFilesWindow(self, self.path_var.get(), self.token_var, self.repo_var, DND_FILES)
-            print("open_add_files_window: New window created")
-
-    def remove_buttons(self):
-        # Удаление кнопок
-        for key in self.buttons.keys():
-            try:
-                self.buttons[key].grid_remove()
-            except:
-                pass
-        try:
-            self.progress.grid_remove()
-            self.log_text.grid_remove()
-        except:
-            pass           
+            logging.info("open_add_files_window: New window created")       
 
     def save_profile(self, *args):
         # Сохранение профиля
@@ -495,181 +525,7 @@ class SyncApp:
             self.progress_running = False
             logging.info("Progress bar stopped.")
 
-    def sync_files(self):
-        """Synchronize files with GitHub repo"""
-        self.uploaded.set(0)  # Reset the counter at the start of each sync
-
-        # Шаблон регулярного выражения: subj_abbrev_type_num_name.ext (e.g. nm_hw_4_Kidysyuk.ipynb)
-        pattern = re.compile(r"^([a-z]+)_(sem|hw|lec)_(\d+([_.]\d+)*)_(.+)\.(\w+)$")
-
-        g = Github(self.token_var.get(), timeout=180)
-        repo = g.get_repo(self.repo_var.get())
-        student = self.student_var.get()
-
-        logging.info("Starting file synchronization.")
-        for root, _, files in os.walk(self.path_var.get()):
-            if self.cancel_flag:
-                self.log_message("[INFO] Синхронизация прервана.")
-                return  # Выходим из метода, если установлен флаг отмены
-            for file in files:
-                if self.cancel_flag:
-                    self.log_message("[INFO] Синхронизация прервана.")
-                    return  # Выходим из метода, если установлен флаг отмены
-                
-                full_path = os.path.join(root, file)
-                rel_path = os.path.relpath(full_path, self.path_var.get())
-                github_path = rel_path.replace("\\", "/")
-
-                # Проверка имени файла
-                if "data" in rel_path.split(os.sep):
-                    if student not in file:
-                        continue
-                else:
-                    match = pattern.match(file)
-                    if not match or student not in file:
-                        if self.all_logs.get():
-                            logging.warning(f"{file} does not match the synchronization pattern.")
-                            self.log_message(f"[ОШИБКА] {file} не подходит для синхронизации!")
-                        continue
-
-                # Проверка, является ли файл бинарным
-                is_binary = False
-                if not file.endswith(".ipynb"):
-                    try:
-                        with open(full_path, "r") as f:
-                            chunk = f.read(1024)  # Read a small chunk to check for text encoding
-                            if '\0' in chunk:  # Check for null bytes, a strong indicator of binary
-                                is_binary = True
-                    except UnicodeDecodeError:
-                        is_binary = True
-
-                # Загрузка/обновление файла
-                if file.endswith(".ipynb"):
-                    with open(full_path, "rb") as f:
-                        local_content = f.read()
-                else:
-                    try:
-                        with open(full_path, "r", encoding="utf-8") as f:
-                            local_content = f.read().encode("utf-8")
-                    except UnicodeDecodeError:
-                        logging.error(f"Error: {file} has unsupported encoding.")
-                        self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
-                        continue
-
-                if not local_content:
-                    self.log_message(f"[ОШИБКА] {file} is empty")
-                    logging.error(f"Error: {file} is empty.")
-                    continue
-
-
-                max_retries = 3
-                retry_delay = 1  # Initial delay in seconds
-
-                for attempt in range(max_retries):
-                    try:
-                        contents = repo.get_contents(github_path)
-                        if contents.type == "file":
-                            if file.endswith(".ipynb"):
-                                blob = repo.get_git_blob(contents.sha)
-                                remote_content = b64decode(blob.content) if blob.encoding == 'base64' else blob.content
-                                try:
-                                    if remote_content != local_content:
-                                        repo.update_file(contents.path, f"Update {file}", local_content, contents.sha)
-                                        self.log_message(f"[OK] {file} успешно обновлен")
-                                        logging.info(f"{file} updated successfully.")
-                                        self.uploaded.set(self.uploaded.get() + 1)
-                                    else:
-                                        self.log_message(f"[OK] {file} без изменений")
-                                        logging.info(f"{file} no changes.")
-                                except ReadTimeout as e:
-                                    logging.warning(f"Read timed out during update_file for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
-                                    self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло при обновлении {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
-                                    time.sleep(retry_delay)
-                                    retry_delay *= 2
-                                    if attempt == max_retries - 1:
-                                        self.log_message(f"[ОШИБКА] Не удалось обновить {file} после {max_retries} попыток.")
-                                        logging.error(f"Failed to update {file} after {max_retries} attempts: {e}")
-                                    continue  # Continue to the next attempt
-                                except Exception as e:
-                                    self.log_message(f"[ОШИБКА] {file}: {str(e)}")
-                                    logging.error(f"Error updating file {file}: {e}")
-                                    break
-
-                            else:
-                                try:
-                                    github_content = contents.decoded_content
-                                except UnicodeDecodeError:
-                                    github_content = b''
-                                    self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
-                                    logging.error(f"Error: {file} has unsupported encoding.")
-                                    continue
-                                if github_content.encode('utf-8') != local_content:
-                                    repo.update_file(contents.path, f"Update {file}", local_content.decode('utf-8'), contents.sha)
-                                    self.log_message(f"[OK] {file} успешно обновлен")
-                                    logging.info(f"{file} updated successfully.")
-                                    self.uploaded.set(self.uploaded.get() + 1)
-                                else:
-                                    self.log_message(f"[OK] {file} без изменений")
-                                    logging.info(f"{file} no changes.")
-                        else:
-                            logging.error(f"Error: {file} is not a file.")
-                            self.log_message(f"[ОШИБКА] {file} is not a file")
-                        break  # Exit the retry loop if successful
-
-                    except ReadTimeout as e:
-                        logging.warning(f"Read timed out for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
-                        self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло для {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
-                        time.sleep(retry_delay)
-                        retry_delay *= 2  # Exponential backoff
-                        if attempt == max_retries - 1:
-                            self.log_message(f"[ОШИБКА] Не удалось синхронизировать {file} после {max_retries} попыток.")
-                            logging.error(f"Failed to sync {file} after {max_retries} attempts: {e}")
-                    except Exception as e:
-                        if "Not Found" in str(e):
-                            try:
-                                try:
-                                    repo.create_file(github_path, f"Add {file}", local_content.decode('utf-8') if not file.endswith(".ipynb") else local_content)
-                                    logging.info(f"{file} uploaded successfully.")
-                                    self.log_message(f"[OK] {file} успешно загружен")
-                                    self.uploaded.set(self.uploaded.get() + 1)
-                                except ReadTimeout as e:
-                                    logging.warning(f"Read timed out during create_file for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
-                                    self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло при создании {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
-                                    time.sleep(retry_delay)
-                                    retry_delay *= 2
-                                    if attempt == max_retries - 1:
-                                        self.log_message(f"[ОШИБКА] Не удалось создать {file} после {max_retries} попыток.")
-                                        logging.error(f"Failed to create {file} after {max_retries} attempts: {e}")
-                                    continue  # Continue to the next attempt
-                                except Exception as e:
-                                    self.log_message(f"[ОШИБКА] {file}: {str(e)}")
-                                    logging.error(f"Error creating file {file}: {e}")
-                                    break
-
-                            except ReadTimeout as e:
-                                logging.warning(f"Read timed out for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
-                                self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло для {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
-                                time.sleep(retry_delay)
-                                retry_delay *= 2  # Exponential backoff
-                                if attempt == max_retries - 1:
-                                    self.log_message(f"[ОШИБКА] Не удалось синхронизировать {file} после {max_retries} попыток.")
-                                    logging.error(f"Failed to sync {file} after {max_retries} attempts: {e}")
-                            except Exception as e:
-                                self.log_message(f"[ОШИБКА] {file}: {str(e)}")
-                        else:
-                            self.log_message(f"[ОШИБКА] {file}: {str(e)}")
-                        break
-
-    def convert_path(self, rel_path):
-        # Конвертация пути
-        parts = rel_path.split(os.sep)
-        if "data" in parts:
-            i = parts.index("data")
-            parts = parts[:i + 1] + [self.student_var.get()] + parts[i + 1:]
-        if parts[0] == "FU":
-            parts = parts[1:]
-        return parts
-
+    # Работа с файлами
     def run_create_structure(self):
         # Запуск создания структуры
         logging.info("Starting create structure process.")
@@ -690,6 +546,357 @@ class SyncApp:
         self.toggle_progress(True)
         threading.Thread(target=self.threaded_sync, daemon=True).start()
 
+    async def get_blob_async(self, repo, sha, session):
+        """Asynchronously fetches and decodes a Git blob."""
+        if sha in self.blob_cache:
+            logging.info(f"Blob {sha} found in cache.")
+            return self.blob_cache[sha]
+
+        try:
+            logging.info(f"Fetching blob {sha} from GitHub.")
+            blob = repo.get_git_blob(sha)
+            if blob.encoding == 'base64':
+                remote_content = b64decode(blob.content)
+            else:
+                remote_content = blob.content
+            self.blob_cache[sha] = remote_content  # Cache the blob
+            return remote_content
+        except GithubException as e:
+            logging.error(f"Error fetching blob {sha}: {e}")
+            return None
+
+    def create_database(self):
+        """Creates the database and table if they don't exist."""
+        try:
+            conn = sqlite3.connect(DATABASE_FILE)
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS file_metadata (
+                    file_path TEXT PRIMARY KEY,
+                    file_hash TEXT,
+                    last_modified REAL,
+                    file_size INTEGER
+                )
+            """)
+            conn.commit()
+            conn.close()
+            logging.info(f"Database created/connected successfully at: {DATABASE_FILE}")
+        except sqlite3.Error as e:
+            logging.error(f"Error creating or connecting to database: {e}")
+            # Handle the error appropriately (e.g., display a message to the user, exit the application)
+
+    def close_database(self):
+        """Closes the database connection."""
+        pass
+
+    def get_file_metadata(self, file_path, conn, cursor):
+        """Retrieves file metadata from the database."""
+        cursor.execute("SELECT file_hash, last_modified, file_size FROM file_metadata WHERE file_path=?", (file_path,))
+        result = cursor.fetchone()
+        if result:
+            return {"file_hash": result[0], "last_modified": result[1], "file_size": result[2]}
+        return None
+
+    def save_file_metadata(self, file_path, file_hash, last_modified, file_size, conn, cursor):
+        """Saves file metadata to the database."""
+        cursor.execute("""
+            INSERT OR REPLACE INTO file_metadata (file_path, file_hash, last_modified, file_size)
+            VALUES (?, ?, ?, ?)
+        """, (file_path, file_hash, last_modified, file_size))
+        conn.commit()
+
+    async def calculate_file_hash_async(self, file_path):
+        """Calculates the SHA-256 hash of a file asynchronously."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.calculate_file_hash, file_path)
+
+    def calculate_file_hash(self, file_path):
+        """Calculates the SHA-256 hash of a file."""
+        hasher = hashlib.sha256()
+        try:
+            with open(file_path, 'rb') as file:
+                while True:
+                    chunk = file.read(4096)  # Read in 4KB chunks
+                    if not chunk:
+                        break
+                    hasher.update(chunk)
+            return hasher.hexdigest()
+        except FileNotFoundError:
+            logging.error(f"File not found: {file_path}")
+            return None
+
+    async def sync_file_async(self, repo, file, full_path, github_path, student, pattern, session, conn, cursor):
+        """Asynchronously synchronizes a single file."""
+        if self.cancel_flag:
+            self.log_message("[INFO] Синхронизация прервана.")
+            return
+
+        logging.info(f"Processing file: {file}")
+
+        # Проверка имени файла
+        if "data" in github_path.split("/"):
+            if student not in file:
+                return
+        else:
+            match = pattern.match(file)
+            if not match or student not in file:
+                if self.all_logs.get():
+                    logging.warning(f"{file} does not match the synchronization pattern.")
+                    self.log_message(f"[ОШИБКА] {file} не подходит для синхронизации!")
+                return
+        logging.info(f" file: {file} passed name check")
+
+        # Metadata check
+        last_modified = os.path.getmtime(full_path)
+        file_size = os.path.getsize(full_path)
+        cached_metadata = self.get_file_metadata(full_path, conn, cursor)
+
+        if cached_metadata:
+            if cached_metadata["last_modified"] == last_modified and cached_metadata["file_size"] == file_size:
+                logging.info(f"{file} metadata is unchanged. Checking hash cache.")
+                if cached_metadata["file_hash"] in self.file_hash_cache.values():
+                    logging.info(f"{file} hash is unchanged. Skipping.")
+                    self.log_message(f"[OK] {file} без изменений. Пропускаю.")
+                    self.processed.set(self.processed.get() + 1) # Increment processed counter
+                    return
+                else:
+                    logging.info(f"{file} hash is not in cache. Proceeding with hash calculation.")
+            else:
+                logging.info(f"{file} metadata has changed. Proceeding with hash calculation.")
+        else:
+            logging.info(f"{file} metadata not found in database. Proceeding with hash calculation.")
+
+        # Calculate local file hash
+        local_file_hash = await self.calculate_file_hash_async(full_path)
+        if local_file_hash is None:
+            logging.error(f"Failed to calculate hash for {file}. Skipping.")
+            self.log_message(f"[ОШИБКА] Не удалось вычислить хеш для {file}. Пропускаю.")
+            return
+
+        # Check if the file exists remotely
+        try:
+            contents = repo.get_contents(github_path)
+            if contents.type == "file":
+                # Get remote file hash
+                remote_content = await self.get_blob_async(repo, contents.sha, session)
+                if remote_content is None:
+                    logging.error(f"Failed to get remote content for {file}. Skipping.")
+                    self.log_message(f"[ОШИБКА] Не удалось получить удаленное содержимое для {file}. Пропускаю.")
+                    return
+                remote_file_hash = hashlib.sha256(remote_content).hexdigest()
+
+                # Compare hashes
+                if local_file_hash == remote_file_hash:
+                    logging.info(f"{file} is unchanged. Skipping.")
+                    self.log_message(f"[OK] {file} без изменений. Пропускаю.")
+                    self.file_hash_cache[full_path] = local_file_hash
+                    self.save_file_metadata(full_path, local_file_hash, last_modified, file_size, conn, cursor)
+                    self.processed.set(self.processed.get() + 1) # Increment processed counter
+                    return  # Skip the file if it's unchanged
+                else:
+                    logging.info(f"{file} has changed. Proceeding with update.")
+                    self.log_message(f"[INFO] {file} изменился. Обновляю.")
+            else:
+                logging.error(f"Error: {file} is not a file.")
+                self.log_message(f"[ОШИБКА] {file} is not a file")
+                return
+        except (GithubException, requests.exceptions.ChunkedEncodingError, IncompleteRead, urllib3.exceptions.ProtocolError) as e:
+            if isinstance(e, GithubException) and e.status == 404:
+                logging.info(f"File {file} not found on GitHub. Creating it.")
+                self.log_message(f"[INFO] Файл {file} не найден на GitHub. Создаю его.")
+            else:
+                logging.warning(f"Error during get_contents for {file}. Proceeding with update.")
+                self.log_message(f"[ОШИБКА] Произошла ошибка при получении содержимого {file}. Обновляю.")
+
+        # Загрузка/обновление файла
+        max_retries = 5  # Increased retries
+        retry_delay = 1  # Initial delay in seconds
+
+        for attempt in range(max_retries):
+            try:
+                logging.info(f"Syncing file: {file}. Attempt {attempt + 1}/{max_retries}.")
+                self.log_message(f"[INFO] Синхронизация файла {file}. Попытка {attempt + 1}/{max_retries}.")
+                try:
+                    contents = repo.get_contents(github_path)
+                except (GithubException, requests.exceptions.ChunkedEncodingError, IncompleteRead, urllib3.exceptions.ProtocolError) as e:
+                    if isinstance(e, GithubException) and e.status == 404:
+                        logging.info(f"File {file} not found on GitHub. Creating it.")
+                        self.log_message(f"[INFO] Файл {file} не найден на GitHub. Создаю его.")
+                        try:
+                            logging.info(f"Creating {file}")
+                            #full_path = os.path.join(root, file) # this is wrong
+
+                            logging.info(f'Getting chunks of {file}')
+                            local_content_chunks = self.read_file_in_chunks(full_path)
+                            local_content = b''
+
+                            logging.info(f'Concatinatig chunks of {file}')
+                            for chunk in local_content_chunks:
+                                if isinstance(chunk, str):
+                                    local_content += chunk.encode('utf-8')
+                                else:
+                                    local_content += chunk
+
+                            logging.info(f'Uploading {file}')
+                            logging.info(f"full_path: {full_path}")
+                            logging.info(f"github_path: {github_path}")
+
+                            if not isinstance(github_path, str):
+                                raise TypeError(f"github_path is not a string: {type(github_path)}")
+                            repo.create_file(github_path, f"Add {file}", local_content.decode('utf-8') if not file.endswith(".ipynb") else local_content)
+                            logging.info(f"{file} uploaded successfully.")
+                            self.log_message(f"[OK] {file} успешно загружен")
+                            self.uploaded.set(self.uploaded.get() + 1)
+                            self.file_hash_cache[full_path] = local_file_hash
+                            self.save_file_metadata(full_path, local_file_hash, last_modified, file_size, conn, cursor)
+                            self.processed.set(self.processed.get() + 1) # Increment processed counter
+                            break
+                        except (ReadTimeout, IncompleteRead, requests.exceptions.ChunkedEncodingError, urllib3.exceptions.ProtocolError) as e:  # Catch IncompleteRead
+                            logging.warning(f"Read timed out or IncompleteRead during create_file for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
+                            self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло или не все данные были получены при создании {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2
+                            if attempt == max_retries - 1:
+                                self.log_message(f"[ОШИБКА] Не удалось создать {file} после {max_retries} попыток.")
+                                logging.error(f"Failed to create {file} after {max_retries} attempts: {e}")
+                            continue  # Continue to the next attempt
+                        except Exception as e:
+                            self.log_message(f"[ОШИБКА] {file}: {str(e)}")
+                            logging.error(f"Error creating file {file}: {e}")
+                            break
+                    else:
+                        logging.warning(f"Error during get_contents for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
+                        self.log_message(f"[ОШИБКА] Произошла ошибка при получении содержимого {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                        if attempt == max_retries - 1:
+                            self.log_message(f"[ОШИБКА] Не удалось получить содержимое {file} после {max_retries} попыток.")
+                            logging.error(f"Failed to get contents {file} after {max_retries} attempts: {e}")
+                        continue
+                if contents.type == "file":
+                    if file.endswith(".ipynb"):
+                        logging.info('.ipynb detected')
+                        with open(full_path, "rb") as f:
+                            local_content = f.read()
+                            logging.info('.ipynb contend read')
+
+                        logging.info('getting blob')
+                        remote_content = await self.get_blob_async(repo, contents.sha, session)
+                        logging.info('.ipynb content decoded')
+
+                        try:
+                            if remote_content != local_content:
+                                logging.info(f"{file} started updating")
+                                repo.update_file(contents.path, f"Update {file}", local_content, contents.sha)
+                                self.log_message(f"[OK] {file} успешно обновлен")
+                                logging.info(f"{file} updated successfully.")
+                                self.uploaded.set(self.uploaded.get() + 1)
+                                self.file_hash_cache[full_path] = local_file_hash
+                                self.save_file_metadata(full_path, local_file_hash, last_modified, file_size, conn, cursor)
+                                self.processed.set(self.processed.get() + 1) # Increment processed counter
+                            else:
+                                self.log_message(f"[OK] {file} без изменений")
+                                logging.info(f"{file} no changes.")
+                                self.file_hash_cache[full_path] = local_file_hash
+                                self.save_file_metadata(full_path, local_file_hash, last_modified, file_size, conn, cursor)
+                                self.processed.set(self.processed.get() + 1) # Increment processed counter
+                        except (ReadTimeout, IncompleteRead, requests.exceptions.ChunkedEncodingError, urllib3.exceptions.ProtocolError) as e:  # Catch IncompleteRead
+                            logging.warning(f"Read timed out or IncompleteRead during update_file for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
+                            self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло или не все данные были получены при обновлении {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2
+                            if attempt == max_retries - 1:
+                                self.log_message(f"[ОШИБКА] Не удалось обновить {file} после {max_retries} попыток.")
+                                logging.error(f"Failed to update {file} after {max_retries} attempts: {e}")
+                            continue  # Continue to the next attempt
+                        except Exception as e:
+                            self.log_message(f"[ОШИБКА] {file}: {str(e)}")
+                            logging.error(f"Error updating file {file}: {e}")
+                            break
+                    else:
+                        logging.info(f'started loading chunks of {file}')
+                        local_content_chunks = self.read_file_in_chunks(full_path)
+                        remote_content = b''
+                        try:
+                            logging.info(f'started decoding {file}')
+                            github_content = contents.decoded_content
+                            remote_content = github_content.encode('utf-8')
+                            logging.info(f'decoded {file}')
+                        except UnicodeDecodeError:
+                            self.log_message(f"[ОШИБКА] {file} has unsupported encoding")
+                            logging.error(f"Error: {file} has unsupported encoding.")
+                            continue
+
+                        local_content = b''
+
+                        logging.info(f'Concatinatig chunks of {file}')
+                        for chunk in local_content_chunks:
+                            if isinstance(chunk, str):
+                                local_content += chunk.encode('utf-8')
+                            else:
+                                local_content += chunk
+
+                        logging.info(f'Loading {file} to remote')
+                        if remote_content != local_content:
+                            repo.update_file(contents.path, f"Update {file}", local_content.decode('utf-8') if not file.endswith(".ipynb") else local_content, contents.sha)
+                            self.log_message(f"[OK] {file} успешно обновлен")
+                            logging.info(f"{file} updated successfully.")
+                            self.uploaded.set(self.uploaded.get() + 1)
+                            self.file_hash_cache[full_path] = local_file_hash
+                            self.save_file_metadata(full_path, local_file_hash, last_modified, file_size, conn, cursor)
+                            self.processed.set(self.processed.get() + 1) # Increment processed counter
+                        else:
+                            self.log_message(f"[OK] {file} без изменений")
+                            logging.info(f"{file} no changes.")
+                            self.file_hash_cache[full_path] = local_file_hash
+                            self.save_file_metadata(full_path, local_file_hash, last_modified, file_size, conn, cursor)
+                            self.processed.set(self.processed.get() + 1) # Increment processed counter
+                else:
+                    logging.error(f"Error: {file} is not a file.")
+                    self.log_message(f"[ОШИБКА] {file} is not a file")
+                logging.info('successfull sync')
+                break  # Exit the retry loop if successful
+
+            except (ReadTimeout, IncompleteRead, requests.exceptions.ChunkedEncodingError, urllib3.exceptions.ProtocolError) as e:  # Catch IncompleteRead
+                logging.warning(f"Read timed out or IncompleteRead for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
+                self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло или не все данные были получены для {file}, попытка {attempt + 1}/{max_retries}. Повторная попытка через {retry_delay} секунд...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+                if attempt == max_retries - 1:
+                    self.log_message(f"[ОШИБКА] Не удалось синхронизировать {file} после {max_retries} попыток.")
+                    logging.error(f"Failed to sync {file} after {max_retries} attempts: {e}")
+            except Exception as e:
+                logging.error(f"Error during sync for {file}: {e}")
+                traceback.print_exc()
+                self.log_message(f"[ОШИБКА] {file}: {str(e)}")
+                break
+                       
+    async def sync_files_async(self, conn, cursor):
+        """Asynchronously synchronizes files with GitHub repo."""
+        self.uploaded.set(0)  # Reset the counter at the start of each sync
+        self.processed.set(0) # Reset the counter at the start of each sync
+
+        # Шаблон регулярного выражения: subj_abbrev_type_num_name.ext (e.g. nm_hw_4_Kidysyuk.ipynb)
+        pattern = re.compile(r"^([a-z]+)_(sem|hw|lec)_(\d+([_.]\d+)*)_(.+)\.(\w+)$")
+
+        g = Github(self.token_var.get(), timeout=180)
+        repo = g.get_repo(self.repo_var.get())
+        student = self.student_var.get()
+        
+        async with aiohttp.ClientSession() as session:
+            tasks = []
+            for root, _, files in os.walk(self.path_var.get()):
+                if self.cancel_flag:
+                    self.log_message("[INFO] Синхронизация прервана.")
+                    return  # Выходим из метода, если установлен флаг отмены
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, self.path_var.get())
+                    github_path = rel_path.replace(os.path.sep, "/")
+                    task = asyncio.create_task(self.sync_file_async(repo, file, full_path, github_path, student, pattern, session, conn, cursor))
+                    tasks.append(task)
+            await asyncio.gather(*tasks)
+
     def threaded_sync(self):
         # Потоковая синхронизация
         logging.info("Starting threaded synchronization.")
@@ -708,8 +915,10 @@ class SyncApp:
             return
         self.cancel_flag = False # Сбрасываем флаг отмены
         self.buttons["cancel_btn"].grid() # Показываем кнопку отмены
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
         try:
-            self.sync_files()
+            asyncio.run(self.sync_files_async(conn, cursor))
         except requests.exceptions.ReadTimeout as e:
             self.log_message(f"[ОШИБКА] Время ожидания ответа от GitHub истекло. Пожалуйста, проверьте ваше интернет-соединение и попробуйте позже.")
             logging.error(f"Read timed out error: {e}")
@@ -718,10 +927,12 @@ class SyncApp:
             logging.error(f"Error during synchronization: {e}")
 
         finally:
+            conn.close()
+            self.log_message(f"[INFO] Синхронизация завершена. Загружено: {self.uploaded.get()}. Обработано: {self.processed.get()}")
+            logging.info(f"Synchronization completed. Uploaded: {self.uploaded.get()}. Processed: {self.processed.get()}")
             self.buttons["cancel_btn"].grid_remove() # Скрываем кнопку после завершения
             self.toggle_progress(False)
-
-        
+            
     # Создание повернутой кнопки
     def create_rotated_button(self):
         # Create a temporary image with text
@@ -731,7 +942,7 @@ class SyncApp:
             font = ImageFont.truetype("arial.ttf", font_size)  # Replace with your desired font
             logging.info("Loaded font arial.ttf.")
         except IOError:
-            print("Error: arial.ttf not found. Using default font.")
+            logging.info("Error: arial.ttf not found. Using default font.")
             font = ImageFont.load_default()
 
         # Create a dummy image to use for measuring text size

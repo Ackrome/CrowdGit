@@ -49,7 +49,7 @@ def get_system_theme():
     system = platform.system()
     if system == "Windows":
         return get_windows_theme()
-    elif system == "Darwin":  # macOS
+    elif system.lower() in ["darwin","macos"]:  # macOS
         return get_macos_theme()
     elif system == "Linux":
         return get_linux_theme()

@@ -193,12 +193,25 @@ class AddFilesWindow(tk.Toplevel):
 
     def show_file_location(self, event):
         """Open file location in explorer"""
+        
+        import platform
+        import subprocess
+        
+
         selection = self.file_list.selection()
         if selection:
             item = selection[0]
             index = self.file_list.index(item)
             path = self.files[index]["path"]
-            os.startfile(os.path.dirname(path))
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(os.path.dirname(path))
+            elif system.lower() in ["darwin","macos"]:  # macOS
+                subprocess.run(["open", os.path.dirname(path)])
+            elif system == "Linux":
+                subprocess.run(["xdg-open", os.path.dirname(path)])
+            else:
+                os.startfile(os.path.dirname(path))
 
     def get_abbrev(self, course, semester, subject_name):
         """Получаем аббревиатуру из существующих папок"""
