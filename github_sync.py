@@ -16,7 +16,7 @@ import sv_ttk
 import time
 import requests
 from requests.exceptions import ReadTimeout
-
+from tkinterdnd2 import DND_FILES, TkinterDnD
 
 
 # Configure logging
@@ -439,7 +439,7 @@ class SyncApp:
             self.add_window.lift()
             print("open_add_files_window: Window already exists, lifting it")
         else:
-            self.add_window = AddFilesWindow(self, self.path_var.get(), self.token_var, self.repo_var)
+            self.add_window = AddFilesWindow(self, self.path_var.get(), self.token_var, self.repo_var, DND_FILES)
             print("open_add_files_window: New window created")
 
     def remove_buttons(self):
@@ -529,7 +529,7 @@ class SyncApp:
                     if not match or student not in file:
                         if self.all_logs.get():
                             logging.warning(f"{file} does not match the synchronization pattern.")
-                            self.log_message(f"{file} не подходит для синхронизации!")
+                            self.log_message(f"[ОШИБКА] {file} не подходит для синхронизации!")
                         continue
 
                 # Проверка, является ли файл бинарным
@@ -575,11 +575,11 @@ class SyncApp:
                                 try:
                                     if remote_content != local_content:
                                         repo.update_file(contents.path, f"Update {file}", local_content, contents.sha)
-                                        self.log_message(f"{file} успешно обновлен")
+                                        self.log_message(f"[OK] {file} успешно обновлен")
                                         logging.info(f"{file} updated successfully.")
                                         self.uploaded.set(self.uploaded.get() + 1)
                                     else:
-                                        self.log_message(f"{file} без изменений")
+                                        self.log_message(f"[OK] {file} без изменений")
                                         logging.info(f"{file} no changes.")
                                 except ReadTimeout as e:
                                     logging.warning(f"Read timed out during update_file for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
@@ -605,11 +605,11 @@ class SyncApp:
                                     continue
                                 if github_content.encode('utf-8') != local_content:
                                     repo.update_file(contents.path, f"Update {file}", local_content.decode('utf-8'), contents.sha)
-                                    self.log_message(f"{file} успешно обновлен")
+                                    self.log_message(f"[OK] {file} успешно обновлен")
                                     logging.info(f"{file} updated successfully.")
                                     self.uploaded.set(self.uploaded.get() + 1)
                                 else:
-                                    self.log_message(f"{file} без изменений")
+                                    self.log_message(f"[OK] {file} без изменений")
                                     logging.info(f"{file} no changes.")
                         else:
                             logging.error(f"Error: {file} is not a file.")
@@ -630,7 +630,7 @@ class SyncApp:
                                 try:
                                     repo.create_file(github_path, f"Add {file}", local_content.decode('utf-8') if not file.endswith(".ipynb") else local_content)
                                     logging.info(f"{file} uploaded successfully.")
-                                    self.log_message(f"{file} успешно загружен")
+                                    self.log_message(f"[OK] {file} успешно загружен")
                                     self.uploaded.set(self.uploaded.get() + 1)
                                 except ReadTimeout as e:
                                     logging.warning(f"Read timed out during create_file for {file}, attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay} seconds...")
@@ -879,6 +879,6 @@ class SyncApp:
 
 if __name__ == "__main__":
     logging.info("Starting application.")
-    root = tk.Tk() # Создание окна
+    root = TkinterDnD.Tk() # Создание окна
     app = SyncApp(root)
     root.mainloop()

@@ -10,7 +10,7 @@ from ToolTip import ToolTip
 
 
 class AddFilesWindow(tk.Toplevel):
-    def __init__(self, parent, base_path, token_var, repo_var):
+    def __init__(self, parent, base_path, token_var, repo_var, DND_FILES):
         super().__init__(parent.root)
         self.parent = parent
         self.base_path = base_path
@@ -34,6 +34,7 @@ class AddFilesWindow(tk.Toplevel):
         self.helper = ttk.Label(self,text = "Сначала заполните информацию о дисциплине, а затем загружайте файлы")
         self.helper.grid(row=0, column=0, sticky="e")
         
+
         
         # Use Treeview instead of Listbox
         self.file_list = ttk.Treeview(self, columns=("Number", "File"), show="headings")
@@ -42,6 +43,8 @@ class AddFilesWindow(tk.Toplevel):
         self.file_list.column("Number", width=50, anchor="center")
         self.file_list.column("File", width=300, anchor="w")
         self.file_list.bind("<Button-3>", self.show_context_menu)
+        self.drop_target_register(DND_FILES)
+        self.dnd_bind('<<Drop>>', self.drop_inside)
         
         # Entry for editing numbers
         # self.entry = None
@@ -86,7 +89,6 @@ class AddFilesWindow(tk.Toplevel):
         # Layout
         self.add_btn.grid(row=0, column=0, pady=5, sticky="w")
         self.add_btn.grid_remove() # Add this line
-
         self.paths_text.grid(row=1, column=0, sticky="nsew", padx=5)
         self.paths_text.grid_remove() # Add this line
         self.scroll.grid(row=1, column=1, sticky="ns")
@@ -94,7 +96,8 @@ class AddFilesWindow(tk.Toplevel):
         self.file_list.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
         self.file_list.grid_remove() # Add this line
         self.convert_btn.grid(row=7, column=0, pady=10)
-
+        self.clear_btn = ttk.Button(self, text="Очистить список", command=self.clear_list)
+        self.clear_btn.grid(row=7, column=0, sticky="w")
         
         self.scan_local_structure()
 
@@ -119,6 +122,7 @@ class AddFilesWindow(tk.Toplevel):
         ToolTip(self.subject_dd, "Выберите предмет из списка.")
         ToolTip(self.type_dd, "Выберите тип работы (Домашнее задание, Лекция, Семинар и т.д.).")
         ToolTip(self.convert_btn, "Нажмите, чтобы скопировать выбранные файлы в локальную структуру с правильными именами.")
+        ToolTip(self.clear_btn, "Очистить список файлов.")
         ToolTip(self.paths_text, "Здесь отображаются пути к файлам, которые будут скопированы, и их новые имена.")
 
         self.update()  # Force the window to update its layout
@@ -126,6 +130,14 @@ class AddFilesWindow(tk.Toplevel):
         
         self.check_duplicates()
         
+    def clear_list(self):
+        """Очистка списка файлов."""
+        self.files.clear()
+        for item in self.file_list.get_children():
+            self.file_list.delete(item)
+        self.update_paths_text()
+        self.check_duplicates()
+
         
     def check_fields(self, *args):
         """Check if all fields are filled and show/hide widgets accordingly."""
@@ -407,3 +419,27 @@ class AddFilesWindow(tk.Toplevel):
         else:
             self.convert_btn.config(state="normal")
 
+    def drop_inside(self, event):
+        """Handle file drop event."""
+        try:
+            # Получаем список путей к файлам
+            paths = self.tk.splitlist(event.data)
+            
+            # Обрабатываем каждый путь
+            for path in paths:
+                path = path.strip()
+                if os.path.isfile(path):
+                    self.files.append({"path": path, "num": tk.StringVar(value="")})
+                    self.file_list.insert("", "end", values=("", os.path.basename(path)))
+                elif os.path.isdir(path):
+                    for root, _, files in os.walk(path):
+                        for file in files:
+                            full_path = os.path.join(root, file)
+                            self.files.append({"path": full_path, "num": tk.StringVar(value="")})
+                            self.file_list.insert("", "end", values=("", os.path.basename(full_path)))
+            self.update_paths_text()
+            self.check_duplicates()
+        except tk.TclError:
+            pass
+        except Exception as e:
+            print(traceback.format_exc())

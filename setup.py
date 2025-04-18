@@ -15,9 +15,9 @@ reqs = [
     "idna",      # используется для работы с доменами и адресами в requests
     "charset-normalizer",  # альтернатива chardet в новых версиях requests
     "sv-ttk",
-    "Pillow"
+    "Pillow",
+    "tkinterdnd2"
 ]
-
 
 
 for pkg in reqs:
