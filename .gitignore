@@ -6,3 +6,5 @@ idea*
 .venv
 file_metadata.db
 remake.md
+dist/
+build/

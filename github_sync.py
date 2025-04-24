@@ -76,6 +76,7 @@ class SyncApp:
 
         self.token_var = tk.StringVar(value=GITHUB_TOKEN if GITHUB_TOKEN else "")
         self.path_var = tk.StringVar(value=os.getcwd())
+        self.path_var.set(settings.get("path", os.getcwd()))
         self.student_var = tk.StringVar(value=STUDENT_NAME if STUDENT_NAME else "")
         self.repo_var = tk.StringVar(value="kvdep/CoolSekeleton")
         self.base = tk.StringVar(value="FU")
@@ -452,10 +453,9 @@ class SyncApp:
         return {}
     
     @staticmethod
-    def save_settings(token, student, structure={}, theme="light"): # Добавим параметр theme
-        logging.info("Saving settings to file.")
+    def save_settings(token, student, structure={}, theme="light", path=""): # Добавим параметр theme        logging.info("Saving settings to file.")
         with open(SETTINGS_FILE, "w") as f:
-            json.dump({"token": token, "student": student, "structure": structure, "theme": theme}, f) # Добавим theme в словарь
+            json.dump({"token": token, "student": student, "structure": structure, "theme": theme, "path": path}, f) # Добавим theme в словарь
 
     def read_file_in_chunks(self, file_path, chunk_size=1024 * 1024):
         """Reads a file in chunks to handle large files."""
