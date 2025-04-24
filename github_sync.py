@@ -45,10 +45,15 @@ logging.basicConfig(
 )
 
 
-SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "saved_settings.json")
 
-# Define the database file path
-DATABASE_FILE = os.path.join(os.path.dirname(__file__), "file_metadata.db")
+
+# Define the database file path in the AppData directory
+APP_DATA_DIR = os.path.join(os.getenv('APPDATA'), 'CrowdGit')
+
+
+os.makedirs(APP_DATA_DIR, exist_ok=True)  # Create the directory if it doesn't exist
+DATABASE_FILE = os.path.join(APP_DATA_DIR, "file_metadata.db")
+SETTINGS_FILE = os.path.join(APP_DATA_DIR, "saved_settings.json")
 
 class SyncApp:
     def __init__(self, root):  # Инициализация приложения
@@ -114,6 +119,7 @@ class SyncApp:
                 self.token_var.get(),
                 self.student_var.get(),
                 self.folder_structure,
+                self.path_var.get()
             )
         
         logging.info("Folder structure loaded.")
@@ -446,7 +452,11 @@ class SyncApp:
         # Загрузка настроек из файла
         if os.path.exists(SETTINGS_FILE):
             logging.info("Loading settings from file.")
-            with open(SETTINGS_FILE, "r") as f:
+            # Get the user's application data directory
+            app_data_dir = os.path.join(os.getenv('APPDATA'), 'CrowdGit')
+            settings_file_path = os.path.join(app_data_dir, 'saved_settings.json')
+
+            with open(settings_file_path, "r") as f:
                 settings = json.load(f)
                 settings["theme"] = settings.get("theme", "light") # Добавим получение темы, если ее нет, то light
                 return settings
@@ -454,7 +464,14 @@ class SyncApp:
     
     @staticmethod
     def save_settings(token, student, structure={}, theme="light", path=""): # Добавим параметр theme        logging.info("Saving settings to file.")
-        with open(SETTINGS_FILE, "w") as f:
+            # Get the user's application data directory
+        app_data_dir = os.path.join(os.getenv('APPDATA'), 'CrowdGit')
+
+        # Create the directory if it doesn't exist
+        os.makedirs(app_data_dir, exist_ok=True)
+
+        settings_file_path = os.path.join(app_data_dir, 'saved_settings.json')
+        with open(settings_file_path, "w") as f:
             json.dump({"token": token, "student": student, "structure": structure, "theme": theme, "path": path}, f) # Добавим theme в словарь
 
     def read_file_in_chunks(self, file_path, chunk_size=1024 * 1024):
