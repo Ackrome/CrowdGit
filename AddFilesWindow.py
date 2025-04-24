@@ -37,7 +37,10 @@ class AddFilesWindow(tk.Toplevel):
 
         
         # Use Treeview instead of Listbox
-        self.file_list = ttk.Treeview(self, columns=("Number", "File"), show="headings")
+        self.file_list = ttk.Treeview(self, columns=("Number", "File", "Size"), show="headings")
+        self.file_list.heading("Size", text="Размер")
+        self.file_list.column("Size", width=100, anchor="center")
+
         self.file_list.heading("Number", text="Номер")
         self.file_list.heading("File", text="Файл")
         self.file_list.column("Number", width=50, anchor="center")
@@ -164,8 +167,10 @@ class AddFilesWindow(tk.Toplevel):
         paths = filedialog.askopenfilenames()
         if paths:
             for path in paths:
-                self.files.append({"path": path, "num": tk.StringVar(value="")})
-                self.file_list.insert("", "end", values=("", os.path.basename(path)))
+                file_size = os.path.getsize(path)
+                self.files.append({"path": path, "num": tk.StringVar(value=""), "size": file_size})
+                self.file_list.insert("", "end", values=("", os.path.basename(path), self.format_size(file_size)))
+
             
             self.update_paths_text()
             self.check_duplicates()
@@ -182,8 +187,8 @@ class AddFilesWindow(tk.Toplevel):
             self.check_duplicates()
             # Re-index the files
             for i, file_data in enumerate(self.files):
-                self.file_list.item(self.file_list.get_children()[i], values=(file_data["num"].get(), os.path.basename(file_data["path"])))
-
+                self.file_list.item(self.file_list.get_children()[i], values=(file_data["num"].get(), os.path.basename(file_data["path"]), self.format_size(file_data["size"])))
+                
     def show_context_menu(self, event):
         """Show right-click menu for file operations"""
         menu = tk.Menu(self, tearoff=0)
@@ -442,17 +447,30 @@ class AddFilesWindow(tk.Toplevel):
             for path in paths:
                 path = path.strip()
                 if os.path.isfile(path):
-                    self.files.append({"path": path, "num": tk.StringVar(value="")})
-                    self.file_list.insert("", "end", values=("", os.path.basename(path)))
+                    file_size = os.path.getsize(path)
+                    self.files.append({"path": path, "num": tk.StringVar(value=""), "size": file_size})
+                    self.file_list.insert("", "end", values=("", os.path.basename(path), self.format_size(file_size)))
+
                 elif os.path.isdir(path):
                     for root, _, files in os.walk(path):
                         for file in files:
-                            full_path = os.path.join(root, file)
-                            self.files.append({"path": full_path, "num": tk.StringVar(value="")})
-                            self.file_list.insert("", "end", values=("", os.path.basename(full_path)))
+                            path = os.path.join(root, file)
+                            self.files.append({"path": path, "num": tk.StringVar(value=""), "size": os.path.getsize(path)})
+                            self.file_list.insert("", "end", values=("", os.path.basename(path), self.format_size(os.path.getsize(path))))
+
             self.update_paths_text()
             self.check_duplicates()
         except tk.TclError:
             pass
         except Exception as e:
             print(traceback.format_exc())
+    
+    def format_size(self, size):
+        """Formats the file size into a human-readable string."""
+        power = 2**10
+        n = 0
+        power_labels = {0 : 'B', 1: 'KB', 2: 'MB', 3: 'GB', 4: 'TB'}
+        while size >= power:
+            size /= power
+            n += 1
+        return f"{size:.2f} {power_labels[n]}"

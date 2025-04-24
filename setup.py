@@ -18,7 +18,10 @@ reqs = [
     "Pillow",
     "tkinterdnd2",
     "aiohttp",
-    "urllib3"
+    "urllib3",
+    "ndg-httpsclient",
+    "pyopenssl",
+    "pyasn1"
 ]
 
 
@@ -26,5 +29,5 @@ for pkg in reqs:
     try:
         __import__(pkg.lower())
     except ImportError:
-        print(f"Installing {pkg}...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
+        print(f"Installing {pkg}...\n\n")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", pkg])

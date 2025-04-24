@@ -5,3 +5,4 @@ app.log
 idea*
 .venv
 file_metadata.db
+remake.md
