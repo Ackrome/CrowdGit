@@ -1,12 +1,12 @@
 import platform
 import subprocess
-import winreg
 import os
 
 
 def get_windows_theme():
     """Gets the current Windows theme (light or dark)."""
     try:
+        import winreg
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
@@ -55,8 +55,3 @@ def get_system_theme():
         return get_linux_theme()
     else:
         return "light"  # Default to light for unsupported systems
-
-
-# Example usage
-#theme = get_system_theme()
-#print(f"System theme: {theme}")
