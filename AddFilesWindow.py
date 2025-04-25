@@ -288,7 +288,7 @@ class AddFilesWindow(tk.Toplevel):
         except AttributeError:
                 messagebox.showwarning("Подождите", "Структура файлов создается. Подождите...")
                 self.parent.create_folder_structure()
-                self.parent.save_settings(self.parent.token_var.get(), self.parent.student_var.get(), self.parent.folder_structure)
+                self.parent.save_settings()
                 traverse_structure(self.parent.folder_structure)
             
 

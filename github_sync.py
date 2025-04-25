@@ -1,6 +1,6 @@
 import logging
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 import threading
 import os
 import re
@@ -29,6 +29,7 @@ import sqlite3
 import atexit
 import binascii
 import certifi
+import platform
 from urllib.request import urlopen
 
 
@@ -45,10 +46,15 @@ logging.basicConfig(
 )
 
 
+system = platform.system()
+# Define the database file path in the AppData directorysystem = platform.system()
+if system == "Windows":
+    APP_DATA_DIR = os.path.join(os.getenv('APPDATA'), 'CrowdGit')
+elif system.lower() in ["darwin","macos"]:  # macOS
+    APP_DATA_DIR = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', 'CrowdGit')
+elif system == "Linux":
+    APP_DATA_DIR = os.path.join(os.path.expanduser('~'), '.config', 'CrowdGit')
 
-
-# Define the database file path in the AppData directory
-APP_DATA_DIR = os.path.join(os.getenv('APPDATA'), 'CrowdGit')
 
 
 os.makedirs(APP_DATA_DIR, exist_ok=True)  # Create the directory if it doesn't exist
@@ -66,9 +72,9 @@ class SyncApp:
         
         # Set the icon
         try:
-            self.root.iconphoto(True, tk.PhotoImage(file="skull-icon-5253.png"))
+            self.root.iconphoto(True, tk.PhotoImage(file="CrowdGit.png"))
         except tk.TclError:
-            logging.error("Icon file 'skull-icon-5253.png' not found.")
+            logging.error("Icon file 'CrowdGit.png' not found.")
         
         
         logging.info("Application started.")
@@ -76,12 +82,14 @@ class SyncApp:
         settings = self.load_settings()
         GITHUB_TOKEN = settings.get("token", "")
         STUDENT_NAME = settings.get("student", "")
+        PATH = settings.get("path", os.getcwd())
+        THEME = settings.get("theme", get_system_theme())
         self.folder_structure = settings.get("structure")
         
 
         self.token_var = tk.StringVar(value=GITHUB_TOKEN if GITHUB_TOKEN else "")
-        self.path_var = tk.StringVar(value=os.getcwd())
-        self.path_var.set(settings.get("path", os.getcwd()))
+        self.path_var = tk.StringVar(value=PATH if PATH else "")
+        self.path_var.set(PATH)
         self.student_var = tk.StringVar(value=STUDENT_NAME if STUDENT_NAME else "")
         self.repo_var = tk.StringVar(value="kvdep/CoolSekeleton")
         self.base = tk.StringVar(value="FU")
@@ -104,7 +112,7 @@ class SyncApp:
         self.create_rotated_button()
         self.update_rotated_button_colors()
                 
-        self.set_theme(settings.get("theme", get_system_theme())) # Применим тему
+        self.set_theme(THEME) # Применим тему
         
         self.token_var.trace_add(
             "write", lambda *args: self.check_token()
@@ -115,12 +123,7 @@ class SyncApp:
         # Move the logic that depends on buttons here
         if not self.folder_structure:
             self.create_folder_structure()
-            self.save_settings(
-                self.token_var.get(),
-                self.student_var.get(),
-                self.folder_structure,
-                self.path_var.get()
-            )
+            self.save_settings()
         
         logging.info("Folder structure loaded.")
         try:
@@ -141,7 +144,7 @@ class SyncApp:
         self.create_database()
         atexit.register(self.close_database)
         self.processed = tk.IntVar(value=0) # Add processed counter
-       
+        
     # Блок внешнего вида
     def create_buttons(self):
         logging.info("Creating buttons.")
@@ -150,7 +153,7 @@ class SyncApp:
         self.buttons["create_btn"] = ttk.Button(self.root, text="Создать структуру", command=self.run_create_structure)
         self.buttons["sync_btn"] = ttk.Button(self.root, text="Синхронизировать", command=self.run_sync)
         self.buttons["all_logs_entry"] = ttk.Checkbutton(self.root, text="Все логи", variable=self.all_logs)
-        self.buttons["save_btn"] = ttk.Button(self.root, text="Сохранить профиль", command=self.save_profile)
+        self.buttons["save_btn"] = ttk.Button(self.root, text="Сохранить профиль", command=self.save_settings)
         self.buttons["create_info"] = ttk.Label(self.root, text="Скачает сюда всю структуру папок с Git. Подпапку не создаст. Не нашли нужную папку?")
         self.buttons["uploaded_info"] = ttk.Label(self.root, text="Загружено:")
         self.buttons["uploaded_show"] = ttk.Label(self.root, textvariable=self.uploaded)
@@ -310,7 +313,7 @@ class SyncApp:
             sv_ttk.set_theme(theme)
             self.update_tooltips_theme()
             self.update_rotated_button_colors()
-            self.save_profile() # Сохраним тему
+            self.save_settings() # Сохраним тему
         else:
             logging.info("Unknown theme")
             
@@ -344,7 +347,7 @@ class SyncApp:
         logging.info("Creating widgets.")
         # Создание виджетов
         ttk.Label(self.root, text="GitHub Token:").grid(row=0, column=0, sticky="w")
-        self.token_entry = ttk.Entry(self.root, textvariable=self.token_var, width=40, show="*")
+        self.token_entry = ttk.Entry(self.root, textvariable=self.token_var, width=40, show="*", validate="key")
 
         ttk.Label(self.root, text="Локальный путь:").grid(row=1, column=0, sticky="w")
         self.path_entry = ttk.Entry(self.root, textvariable=self.path_var, width=35)
@@ -435,7 +438,7 @@ class SyncApp:
                 return dct
 
             self.folder_structure = get_dirs()
-            self.save_settings(self.token_var.get(), self.student_var.get(), self.folder_structure)
+            self.save_settings()
             self.log_message("[OK] Структура папок создана")
             logging.info("Folder structure created successfully.")
 
@@ -447,32 +450,52 @@ class SyncApp:
         self.buttons['add_files_btn'].grid()
         self.toggle_progress(False)
 
-    @staticmethod
-    def load_settings():
-        # Загрузка настроек из файла
+    def load_settings(self):
+        """Loads settings from a JSON file."""
+        logging.info("Loading settings from file.")
         if os.path.exists(SETTINGS_FILE):
-            logging.info("Loading settings from file.")
-            # Get the user's application data directory
-            app_data_dir = os.path.join(os.getenv('APPDATA'), 'CrowdGit')
-            settings_file_path = os.path.join(app_data_dir, 'saved_settings.json')
+            try:
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    logging.info("Settings loaded successfully.")
+                    return settings
+            except json.JSONDecodeError as e:
+                logging.error(f"Error decoding settings file: {e}")
+                messagebox.showerror("Ошибка загрузки настроек", f"Не удалось прочитать файл настроек: {e}")
+                return {}
+            except Exception as e:
+                logging.error(f"An unexpected error occurred while loading settings: {e}")
+                messagebox.showerror("Ошибка загрузки настроек", f"Произошла непредвиденная ошибка при загрузке настроек: {e}")
+                return {}
+        else:
+            logging.info("Settings file not found.")
+            return {}
 
-            with open(settings_file_path, "r") as f:
-                settings = json.load(f)
-                settings["theme"] = settings.get("theme", "light") # Добавим получение темы, если ее нет, то light
-                return settings
-        return {}
-    
-    @staticmethod
-    def save_settings(token, student, structure={}, theme="light", path=""): # Добавим параметр theme        logging.info("Saving settings to file.")
-            # Get the user's application data directory
-        app_data_dir = os.path.join(os.getenv('APPDATA'), 'CrowdGit')
 
-        # Create the directory if it doesn't exist
-        os.makedirs(app_data_dir, exist_ok=True)
+    def save_settings(self, *args):
+        """Saves current settings to a JSON file."""
+        logging.info("Saving settings.")
+        settings = {
+            "token": self.token_var.get(),
+            "student": self.student_var.get(),
+            "path": str(self.path_var.get()),
+            "theme": sv_ttk.get_theme(), # Добавим тему
+            "structure": self.folder_structure
+        }
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=4)
+            self.log_message(f"[OK] Настройки сохранены в файл: {SETTINGS_FILE}")
+            logging.info("Settings saved successfully.")
+        except IOError as e:
+            logging.error(f"Error saving settings file: {e}")
+            messagebox.showerror("Ошибка сохранения настроек", f"Не удалось записать файл настроек: {e}")
+        except Exception as e:
+            logging.error(f"An unexpected error occurred while saving settings: {e}")
+            messagebox.showerror("Ошибка сохранения настроек", f"Произошла непредвиденная ошибка при сохранении настроек: {e}")
 
-        settings_file_path = os.path.join(app_data_dir, 'saved_settings.json')
-        with open(settings_file_path, "w") as f:
-            json.dump({"token": token, "student": student, "structure": structure, "theme": theme, "path": path}, f) # Добавим theme в словарь
+
+
 
     def read_file_in_chunks(self, file_path, chunk_size=1024 * 1024):
         """Reads a file in chunks to handle large files."""
@@ -528,11 +551,9 @@ class SyncApp:
         # Сохранение профиля
         token = self.token_var.get()
         student = self.student_var.get()
-        theme = sv_ttk.get_theme() # Получим текущую тему
         if token.strip() and student.strip():
             logging.info("Saving profile.")
-            self.save_settings(token, student, self.folder_structure, theme) # Передадим тему
-            self.log_message("[OK] Профиль сохранён") # Вывод сообщения в лог
+            self.save_settings()
             logging.info("Profile saved successfully.")
         else:
             self.log_message("[ОШИБКА] Поля не должны быть пустыми")
@@ -1489,7 +1510,7 @@ class SyncApp:
         self.rotated_canvas.config(bd=2, relief="groove")
 
         # Bind the click event to the image tag
-        self.rotated_canvas.tag_bind(self.rotated_image_id, "<Button-1>", self.save_profile)
+        self.rotated_canvas.tag_bind(self.rotated_image_id, "<Button-1>", self.save_settings)
 
         # Remove old button
         if "save_btn" in self.buttons: # Удаление старой кнопки
