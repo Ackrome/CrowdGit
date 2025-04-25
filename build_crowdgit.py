@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import platform
+import logging
 
 def get_platform():
     """Returns the current operating system."""
@@ -21,22 +22,27 @@ def get_icon_path(platform):
         return os.path.join('icons', "CrowdGit.ico")
     elif platform == "macos":
         return os.path.join('icons', "CrowdGit.icns")
-    elif platform == "macos":
-        return 
     else:
         return os.path.join('icons', "CrowdGit.png")
 
-def build_crowdgit(current_platform = get_platform()):
+def build_crowdgit(main_script="github_sync.py", current_platform=get_platform()):
     """Builds the CrowdGit application using PyInstaller."""
-    print(f"Building for platform: {current_platform}")
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+
+    logger.info(f"Building for platform: {current_platform}")
 
     # Check if PyInstaller is installed
     try:
         import PyInstaller.__main__
     except ImportError:
-        print("PyInstaller is not installed. Installing...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
-        import PyInstaller.__main__
+        logger.info("PyInstaller is not installed. Installing...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
+            import PyInstaller.__main__
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to install PyInstaller: {e}")
+            sys.exit(1)
 
     # Check if requirements are installed
     try:
@@ -48,15 +54,19 @@ def build_crowdgit(current_platform = get_platform()):
         import PIL
         import tkinterdnd2
     except ImportError:
-        print("Some requirements are not installed. Installing...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+        logger.info("Some requirements are not installed. Installing...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to install requirements: {e}")
+            sys.exit(1)
 
     # Base PyInstaller command
     command = [
         sys.executable,
         "-m",
         "PyInstaller",
-        "github_sync.py",
+        main_script,
         "--name=CrowdGit",
         "--windowed",  # Prevents the console window from appearing
         "--onefile",  # Creates a single executable file
@@ -111,11 +121,15 @@ def build_crowdgit(current_platform = get_platform()):
 
     # Add data files (if needed)
     # Example: command.append("--add-data=data_folder/*:data_folder")
-
+    command.append('--add-data=icons;icons')
     # Execute PyInstaller
-    print("Running PyInstaller...")
-    subprocess.check_call(command)
-    print("PyInstaller finished.")
+    logger.info("Running PyInstaller...")
+    try:
+        subprocess.check_call(command)
+        logger.info("PyInstaller finished.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"PyInstaller failed: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     build_crowdgit()

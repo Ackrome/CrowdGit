@@ -11,6 +11,7 @@ import json
 import traceback
 from AddFilesWindow import AddFilesWindow
 from LoadWindow import LoadWindow
+from LoadingWindow import LoadingWindow
 from ToolTip import ToolTip
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 from get_theme import get_system_theme
@@ -30,7 +31,8 @@ import atexit
 import binascii
 import certifi
 import platform
-from urllib.request import urlopen
+import urllib.request
+import sys
 
 
 TIMEOUT = 400
@@ -44,7 +46,6 @@ logging.basicConfig(
         logging.StreamHandler()  # Log to console
     ]
 )
-
 
 system = platform.system()
 # Define the database file path in the AppData directorysystem = platform.system()
@@ -61,8 +62,10 @@ os.makedirs(APP_DATA_DIR, exist_ok=True)  # Create the directory if it doesn't e
 DATABASE_FILE = os.path.join(APP_DATA_DIR, "file_metadata.db")
 SETTINGS_FILE = os.path.join(APP_DATA_DIR, "saved_settings.json")
 
+
 class SyncApp:
     def __init__(self, root):  # Инициализация приложения
+        self.ready = False
         self.root = root
         self.root.title("CrowdGit")
         self.cancel_flag = False
@@ -70,11 +73,24 @@ class SyncApp:
         
         self.base_url = "https://api.github.com" # Ensure base_url is set correctly
         
-        # Set the icon
+        
+        
+        # Construct the path to the icon relative to the executable
+        if getattr(sys, 'frozen', False):
+            # Running as a bundled executable
+            base_path = sys._MEIPASS
+        else:
+            # Running as a script
+            base_path = os.path.dirname(os.path.abspath(__file__))
+
+        icon_path = os.path.join(base_path, os.path.join('icons', "CrowdGit.png"))
+        
         try:
-            self.root.iconphoto(True, tk.PhotoImage(file="CrowdGit.png"))
+            self.root.iconphoto(True, tk.PhotoImage(file=icon_path))
         except tk.TclError:
-            logging.error("Icon file 'CrowdGit.png' not found.")
+            logging.error(f"Icon file not found at {icon_path}.")
+        except Exception as e:
+            logging.error(f"An error occurred while setting the icon: {e}")
         
         
         logging.info("Application started.")
@@ -144,6 +160,7 @@ class SyncApp:
         self.create_database()
         atexit.register(self.close_database)
         self.processed = tk.IntVar(value=0) # Add processed counter
+        self.ready = True
         
     # Блок внешнего вида
     def create_buttons(self):
@@ -1510,7 +1527,7 @@ class SyncApp:
         self.rotated_canvas.config(bd=2, relief="groove")
 
         # Bind the click event to the image tag
-        self.rotated_canvas.tag_bind(self.rotated_image_id, "<Button-1>", self.save_settings)
+        self.rotated_canvas.tag_bind(self.rotated_image_id, "<Button-1>", self.save_profile)
 
         # Remove old button
         if "save_btn" in self.buttons: # Удаление старой кнопки
@@ -1624,9 +1641,40 @@ class SyncApp:
         return "#ffffff" if theme == "dark" else "#000000"
 
 
+def get_ssl_info():
+    """
+    Fetches SSL information from howsmyssl.com and returns it as a dictionary.
+    """
+    try:
+        with urllib.request.urlopen('https://www.howsmyssl.com/a/check') as response:
+            # Read the response as bytes and then decode it to a string
+            html = response.read().decode('utf-8')
+            # Parse the JSON string into a Python dictionary
+            data = json.loads(html)
+            return data
+    except urllib.error.URLError as e:
+        print(f"Error accessing URL: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}")
+        return None
+
+
+
+
+def run_build_with_loading():
+    """Runs the build process with a loading window."""
+
+    ssl_info = get_ssl_info()
+    if ssl_info:
+        logging.info(f'Connection rating = {ssl_info['rating']}')
+    rt = TkinterDnD.Tk()
+    app = SyncApp(rt)
+
+    rt.mainloop()
+
+
+
+
 if __name__ == "__main__":
-    print(urlopen('https://www.howsmyssl.com/a/check').read())
-    logging.info("Starting application.")
-    root = TkinterDnD.Tk() # Создание окна
-    app = SyncApp(root)
-    root.mainloop()
+    run_build_with_loading()

@@ -5,7 +5,7 @@ a = Analysis(
     ['github_sync.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('icons', 'icons')],
     hiddenimports=['aiohttp', 'sv_ttk', 'github', 'certifi', 'requests', 'PIL', 'tkinterdnd2', 'urllib3', 'sqlite3', 'asyncio', 'tkinter', 'tkinter.ttk', 'base64', 'json', 'traceback', 'os', 're', 'logging', 'threading', 'hashlib', 'atexit', 'binascii', 'platform', 'urllib.request', 'http.client', 'requests.exceptions', 'urllib3.exceptions', 'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont', 'PIL.ImageTk', 'tkinter.filedialog', 'tkinter.messagebox'],
     hookspath=[],
     hooksconfig={},
