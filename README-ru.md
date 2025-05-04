@@ -96,7 +96,7 @@ CrowdGit — это **интуитивно понятное приложение
 
 MIT License © 2025 Ackrome
 
-Полная лицензия: [LICENSE](https://github.com/Ackrome/CrowdGit/blob/main/LICENSE)
+Полная лицензия: [LICENSE](https://github.com/Ackrome/CrowdGit/tree/main?tab=MIT-1-ov-file#readme)
 
 ---
 
