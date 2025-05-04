@@ -26,6 +26,10 @@ class AddFilesWindow(tk.Toplevel):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
 
+        self.overwrite_existing_var = tk.BooleanVar(value=False)
+        self.overwrite_existing_var_check = ttk.Checkbutton(self, text="Перезаписывать файлы", variable=self.overwrite_existing_var)
+        
+
         # Initialize ThreadPoolExecutor for file operations
         self.executor = ThreadPoolExecutor(max_workers=os.cpu_count() or 1) # Use number of CPU cores for I/O-bound tasks
 
@@ -105,6 +109,8 @@ class AddFilesWindow(tk.Toplevel):
         self.convert_btn.grid(row=7, column=0, pady=10)
         self.clear_btn = ttk.Button(self, text="Очистить список", command=self.clear_list)
         self.clear_btn.grid(row=7, column=0, sticky="w")
+        
+        self.overwrite_existing_var_check.grid(row=7, column=0, sticky="e")
 
         # Start scanning local structure in a thread
         self.executor.submit(self.scan_local_structure)
