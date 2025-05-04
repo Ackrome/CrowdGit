@@ -13,15 +13,14 @@
 
 ## 📚 Table of Contents
 
-1. [Project Description](#project-description)
-2. [Main Features](#features)
-3. [Technologies](#technologies)
-4. [How to Use](#usage)
-5. [Authors](#authors)
+1. Project Description
+2. Main Features
+3. Technologies
+4. How to Use
+5. Authors
 
 ---
 
-`<a id="project-description"></a>`
 
 ## 📌 Project Description
 
@@ -35,7 +34,6 @@ CrowdGit is an intuitive **application for students and educators** designed to 
 
 ---
 
-`<a id="features"></a>`
 
 ## ⚙️ Main Features
 
@@ -75,7 +73,6 @@ CrowdGit is an intuitive **application for students and educators** designed to 
 
 ---
 
-`<a id="technologies"></a>`
 
 ## 🛠️ Technologies Used
 
@@ -93,7 +90,6 @@ CrowdGit is an intuitive **application for students and educators** designed to 
 
 ---
 
-`<a id="usage"></a>`
 
 ## 🚀 How to Use
 
